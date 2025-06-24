@@ -59,8 +59,13 @@ function processConstructionQueue(data, buildings) {
       return messages;
     }
 
+    // Получение технологий государства
+    const technologiesData = extractVariableData(data, 'Технологии государства', messages);
+    const stateTechnologies = technologiesData?.technologies || [];
+    messages.push(`[Подготовка] 🔬 Загружено ${stateTechnologies.length} технологий государства.`);
+
     const constructionQueue = queueData.construction_queue;
-    messages.push(`[Строительство] 📋 Обработка очереди: ${constructionQueue.length} элементов.`);
+    messages.push(`[Подготовка] 📋 Обработка очереди: ${constructionQueue.length} элементов.`);
 
     // Обработка провинций
     const provincesMap = {};
@@ -86,7 +91,7 @@ function processConstructionQueue(data, buildings) {
       }
     });
 
-    messages.push(`[Строительство] 🗺️ Загружено ${validProvinces} провинций.`);
+    messages.push(`[Подготовка] 🗺️ Загружено ${validProvinces} провинций.`);
 
     // Обработка существующих зданий
     const existingBuildings = {};
@@ -116,6 +121,7 @@ function processConstructionQueue(data, buildings) {
       provincesMap,
       existingBuildings,
       stateName,
+      stateTechnologies, // Добавляем технологии в контекст
       messages
     };
 
@@ -124,7 +130,7 @@ function processConstructionQueue(data, buildings) {
     let processedCount = 0, promotedCount = 0, removedCount = 0;
     
     constructionQueue.forEach((queueItem, index) => {
-      if (queueItem.status !== 'Подготовка' && queueItem.status !== 'Строительство') {
+      if (queueItem.status !== 'Оценка ресурсов' && queueItem.status !== 'Подготовка') {
         updatedQueue.push(queueItem);
         return;
       }
@@ -160,19 +166,19 @@ function processConstructionQueue(data, buildings) {
       );
 
       if (requirementResult.meets) {
-        if (queueItem.status === 'Подготовка') {
-          queueItem.status = 'Строительство';
-          messages.push(`[Строительство] 🏗️ "${buildingCriteria.name}" в "${province.name}" переведено в статус "Строительство".`);
+        if (queueItem.status === 'Оценка ресурсов') {
+          queueItem.status = 'Подготовка';
+          messages.push(`[Подготовка] 🏗️ "${buildingCriteria.name}" в "${province.name}" переведено в статус "Подготовка".`);
           promotedCount++;
         }
         updatedQueue.push(queueItem);
       } else {
-        messages.push(`[Строительство] ❌ "${buildingCriteria.name}" в "${province.name}" не соответствует требованиям и удалено. Причина: ${requirementResult.reason}`);
+        messages.push(`[Подготовка] ❌ "${buildingCriteria.name}" в "${province.name}" не соответствует требованиям и удалено. Причина: ${requirementResult.reason}`);
         removedCount++;
       }
     });
 
-    messages.push(`[Строительство] 📊 Обработано ${processedCount}, переведено в строительство ${promotedCount}, удалено ${removedCount}.`);
+    messages.push(`[Подготовка] 📊 Обработано ${processedCount}, переведено в Подготовка ${promotedCount}, удалено ${removedCount}.`);
 
     // Обновление данных
     const updatedQueueData = { construction_queue: updatedQueue };
@@ -186,7 +192,7 @@ function processConstructionQueue(data, buildings) {
     
     if (queueRowIndex !== -1) {
       data['Переменные'][queueRowIndex][1] = JSON.stringify(updatedQueueData);
-      messages.push(`[Строительство] 💾 Очередь обновлена: ${updatedQueue.length} элементов.`);
+      messages.push(`[Подготовка] 💾 Очередь обновлена: ${updatedQueue.length} элементов.`);
     } else {
       data['Переменные'].push(['Очередь строительства', JSON.stringify(updatedQueueData)]);
       messages.push(`[Предупреждение] ℹ️ Добавлена новая строка "Очередь строительства" в "Переменные".`);
@@ -255,6 +261,12 @@ const CriteriaProcessor = {
       return this.evaluateBuildingCriteria(criterion, stateBuildingCounts);
     });
 
+    // НОВЫЙ ПРОЦЕССОР: Технологии государства
+    this.addProcessor('state_technologies', (criterion, province, context) => {
+      const technologies = context.stateTechnologies || [];
+      return this.evaluateTechnologyCriteria(criterion, technologies);
+    });
+
     this.addProcessor('world_buildings', (criterion, province, context) => {
       const worldBuildingCounts = {};
       Object.values(context.provincesMap).forEach(p => {
@@ -298,6 +310,47 @@ const CriteriaProcessor = {
         return { meets: false, reason: `Ошибка в формуле: ${error.message}` };
       }
     });
+  },
+
+  /**
+   * Оценка технологий государства с поддержкой вложенной логики
+   */
+  evaluateTechnologyCriteria(criterion, technologies) {
+    const conditions = criterion.conditions || [];
+    const logic = criterion.logic || 'AND';
+    
+    // Создаем карту технологий для быстрого поиска
+    const techMap = {};
+    technologies.forEach(tech => {
+      techMap[tech.id] = tech.researched === true;
+    });
+    
+    const results = conditions.map((condition, index) => {
+      // Поддержка вложенных sub_conditions
+      if (condition.sub_conditions) {
+        return this.evaluateSubConditions(condition, techMap, 'technology');
+      }
+      
+      // Обычное условие технологии
+      if (condition.technology_id) {
+        const isResearched = techMap[condition.technology_id] || false;
+        
+        // Если указан оператор, используем его, иначе по умолчанию проверяем наличие
+        const checkValue = condition.operator ? 
+          (isResearched ? 1 : 0) : // Для числовых операторов
+          isResearched; // Для булевых значений
+          
+        const conditionToCheck = condition.operator ? 
+          { ...condition, value: condition.value || 1 } : // Числовая проверка
+          { operator: 'equals', value: condition.required !== false }; // Булева проверка
+          
+        return this.evaluateCondition(checkValue, conditionToCheck, `technology.${condition.technology_id}`);
+      }
+      
+      return { meets: false, reason: `Условие ${index + 1}: отсутствует technology_id` };
+    });
+
+    return this.combineResults(results, logic, 'технологии');
   },
 
   /**
@@ -389,6 +442,18 @@ const CriteriaProcessor = {
       } else if (prefix === 'resource' && subCondition.resource_id) {
         const amount = dataMap[subCondition.resource_id] || 0;
         return this.evaluateCondition(amount, subCondition, `${prefix}.${subCondition.resource_id}`);
+      } else if (prefix === 'technology' && subCondition.technology_id) {
+        const isResearched = dataMap[subCondition.technology_id] || false;
+        
+        const checkValue = subCondition.operator ? 
+          (isResearched ? 1 : 0) : 
+          isResearched;
+          
+        const conditionToCheck = subCondition.operator ? 
+          { ...subCondition, value: subCondition.value || 1 } : 
+          { operator: 'equals', value: subCondition.required !== false };
+          
+        return this.evaluateCondition(checkValue, conditionToCheck, `${prefix}.${subCondition.technology_id}`);
       } else if (prefix === 'magic' && subCondition.magic_type) {
         const amount = dataMap[subCondition.magic_type] || 0;
         return this.evaluateCondition(amount, subCondition, `${prefix}.${subCondition.magic_type}`);
