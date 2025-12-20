@@ -1,0 +1,163 @@
+const NEWS_CELL_LIMIT = 45000;
+
+const CATEGORY_ICONS = {
+  "Строительство": "🏗️",
+  "Экономика": "💰",
+  "Война": "⚔️",
+  "Политика": "🏛️",
+  "Население": "👥",
+  "Технологии": "🔬",
+  "Общее": "ℹ️"
+};
+
+function initNotifications(data) {
+  data.Новости = [];
+}
+
+function normalizeNotification(n) {
+  if (typeof n === "string") {
+    return {
+      category: "Общее",
+      sub: "",
+      priority: 100,
+      parts: [{ text: n }]
+    };
+  }
+
+  return {
+    category: n.category || "Общее",
+    sub: n.sub || "",
+    priority: n.priority ?? 100,
+    parts: n.parts || [{ text: n.text || "" }]
+  };
+}
+
+function notificationKey(n) {
+  return JSON.stringify({
+    category: n.category,
+    sub: n.sub,
+    parts: n.parts.map(p => ({
+      text: p.text || "",
+      bold: !!p.bold,
+      italic: !!p.italic,
+      color: p.color || ""
+    }))
+  });
+}
+
+function collapseNotifications(list) {
+  const map = new Map();
+
+  list.forEach(n => {
+    const key = notificationKey(n);
+
+    if (!map.has(key)) {
+      map.set(key, { ...n, count: 1 });
+    } else {
+      const stored = map.get(key);
+      stored.count++;
+      stored.priority = Math.min(stored.priority, n.priority);
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function groupByCategory(list) {
+  const groups = {};
+  list.forEach(n => {
+    if (!groups[n.category]) groups[n.category] = [];
+    groups[n.category].push(n);
+  });
+  return groups;
+}
+
+function sortCategory(list) {
+  return list.sort((a, b) =>
+    a.priority - b.priority ||
+    (b.count || 1) - (a.count || 1)
+  );
+}
+
+function buildRichText(parts) {
+  const builder = SpreadsheetApp.newRichTextValue();
+  let text = "";
+  const styles = [];
+
+  parts.forEach(p => {
+    const start = text.length;
+    text += p.text || "";
+    const end = text.length;
+
+    if (start === end) return;
+
+    let style = SpreadsheetApp.newTextStyle();
+
+    if (p.bold) style = style.setBold(true);
+    if (p.italic) style = style.setItalic(true);
+    if (p.color) style = style.setForegroundColor(p.color);
+
+    styles.push({ start, end, style: style.build() });
+  });
+
+  builder.setText(text);
+  styles.forEach(s => builder.setTextStyle(s.start, s.end, s.style));
+
+  return builder.build();
+}
+
+function renderNotification(n) {
+  const icon = CATEGORY_ICONS[n.category] || "📌";
+  const mult = n.count > 1 ? `📰x${n.count} ` : "";
+
+  const header = `${mult}${icon} `;
+  const parts = [{ text: header }, ...n.parts];
+
+  return buildRichText(parts);
+}
+
+function flushNotifications(data) {
+  if (!Array.isArray(data.Новости)) return;
+
+  const normalized = data.Новости.map(normalizeNotification);
+  const collapsed = collapseNotifications(normalized);
+  const grouped = groupByCategory(collapsed);
+
+  const cells = [];
+  let currentText = "";
+  let currentParts = [];
+
+  Object.keys(grouped).sort().forEach(category => {
+    const icon = CATEGORY_ICONS[category] || "📌";
+    const header = `\n${icon} ${category}\n`;
+
+    if (currentText.length + header.length > NEWS_CELL_LIMIT) {
+      cells.push(buildRichText(currentParts));
+      currentText = "";
+      currentParts = [];
+    }
+
+    currentText += header;
+    currentParts.push({ text: header, bold: true });
+
+    sortCategory(grouped[category]).forEach(n => {
+      const rendered = renderNotification(n);
+      const text = rendered.getText() + "\n";
+
+      if (currentText.length + text.length > NEWS_CELL_LIMIT) {
+        cells.push(buildRichText(currentParts));
+        currentText = text;
+        currentParts = [{ text }];
+      } else {
+        currentText += text;
+        currentParts.push({ text });
+      }
+    });
+  });
+
+  if (currentText.trim()) {
+    cells.push(buildRichText(currentParts));
+  }
+
+  data.Новости = cells;
+}
