@@ -1,0 +1,116 @@
+/***************/
+/* JSON helpers */
+/***************/
+function safeParse(v) {
+  if (v === "" || v == null) return null;
+  if (typeof v === "object") return v;
+
+  try {
+    return JSON.parse(v);
+  } catch {
+    try {
+      return JSON.parse(
+        v.replace(/'/g, '"')
+         .replace(/,(\s*[}\]])/g, '$1')
+      );
+    } catch {
+      console.warn('❌ JSON parse failed:', v);
+      return null;
+    }
+  }
+}
+
+function safeStringify(v) {
+  return v == null ? "" : JSON.stringify(v);
+}
+
+/********************/
+/* RANGE READ/WRITE */
+/********************/
+function readNamedRange(name) {
+  console.log(`📥 Чтение диапазона: ${name}`);
+
+  const ss = SpreadsheetApp.getActive();
+  const range = ss.getRangeByName(name);
+  if (!range) throw new Error(`Диапазон '${name}' не найден`);
+
+  const values = range.getValues();
+  const headers = values[0].map(String);
+  const data = {};
+
+  headers.forEach(h => data[h] = []);
+
+  for (let r = 1; r < values.length; r++) {
+    headers.forEach((h, c) => {
+      data[h].push(safeParse(values[r][c]));
+    });
+  }
+
+  console.log(`✅ Диапазон '${name}' загружен`, data);
+  return { name, range, headers, data };
+}
+
+function writeNamedRange(ctx) {
+  console.log(`💾 Сохранение диапазона: ${ctx.name}`);
+
+  const { range, headers, data } = ctx;
+  const rows = range.getNumRows();
+  const cols = headers.length;
+
+  const out = Array.from({ length: rows }, () => Array(cols).fill(""));
+
+  headers.forEach((h, c) => out[0][c] = h);
+
+  for (let r = 1; r < rows; r++) {
+    headers.forEach((h, c) => {
+      out[r][c] = safeStringify(data[h][r - 1]);
+    });
+  }
+
+  range.setValues(out);
+}
+
+/********************/
+/* MAIN GAME ENGINE */
+/********************/
+function runGame(rangeNames, ...logicFunctions) {
+  console.log('🚀 Запуск хода');
+
+  const contexts = {};
+  let data = {};
+
+  // 1️⃣ Чтение и ОБЪЕДИНЕНИЕ
+  rangeNames.forEach(name => {
+    console.log(`📥 Чтение диапазона: ${name}`);
+    const ctx = readNamedRange(name);
+    contexts[name] = ctx;
+
+    Object.keys(ctx.data).forEach(column => {
+      if (data[column]) {
+        console.warn(`⚠️ Колонка "${column}" уже существует — перезапись`);
+      }
+      data[column] = ctx.data[column];
+    });
+  });
+
+  // 2️⃣ Выполнение логики
+  logicFunctions.forEach(fn => {
+    console.log(`▶️ ${fn.name}`);
+    data = fn(data) || data;
+  });
+
+  // 3️⃣ Разбор обратно по диапазонам
+  rangeNames.forEach(name => {
+    const ctx = contexts[name];
+    const updated = {};
+
+    Object.keys(ctx.data).forEach(column => {
+      updated[column] = data[column];
+    });
+
+    ctx.data = updated;
+    writeNamedRange(ctx);
+  });
+
+  console.log('✅ Ход завершён');
+}
