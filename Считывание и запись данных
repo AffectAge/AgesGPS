@@ -58,16 +58,33 @@ function writeNamedRange(ctx) {
   const cols = headers.length;
 
   const out = Array.from({ length: rows }, () => Array(cols).fill(""));
+  const rich = Array.from({ length: rows }, () => Array(cols).fill(null));
 
   headers.forEach((h, c) => out[0][c] = h);
 
   for (let r = 1; r < rows; r++) {
     headers.forEach((h, c) => {
-      out[r][c] = safeStringify(data[h][r - 1]);
+      const v = data[h][r - 1];
+
+      if (v && typeof v.getText === "function") {
+        rich[r][c] = v;        // RichText
+        out[r][c] = v.getText();
+      } else {
+        out[r][c] = safeStringify(v);
+      }
     });
   }
 
   range.setValues(out);
+
+  // 🔔 применяем RichText поверх
+  rich.forEach((row, r) => {
+    row.forEach((cell, c) => {
+      if (cell) {
+        range.getCell(r + 1, c + 1).setRichTextValue(cell);
+      }
+    });
+  });
 }
 
 /********************/
@@ -93,11 +110,17 @@ function runGame(rangeNames, ...logicFunctions) {
     });
   });
 
+// Инициализация новостей
+initNotifications(data);
+
   // 2️⃣ Выполнение логики
   logicFunctions.forEach(fn => {
     console.log(`▶️ ${fn.name}`);
     data = fn(data) || data;
   });
+
+// Запись новостей
+flushNotifications(data);
 
   // 3️⃣ Разбор обратно по диапазонам
   rangeNames.forEach(name => {
