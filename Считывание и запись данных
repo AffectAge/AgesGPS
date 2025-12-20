@@ -2,26 +2,49 @@
 /* JSON helpers */
 /***************/
 function safeParse(v) {
-  if (v === "" || v == null) return null;
+  // Пустые значения
+  if (v === "" || v == null || v === undefined) return null;
+
+  // Уже объект — возвращаем как есть
   if (typeof v === "object") return v;
 
-  try {
-    return JSON.parse(v);
-  } catch {
+  // Не строка — возвращаем без изменений
+  if (typeof v !== "string") return v;
+
+  const trimmed = v.trim();
+
+  // Парсим ТОЛЬКО если строка явно начинается с { или [
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
-      return JSON.parse(
-        v.replace(/'/g, '"')
-         .replace(/,(\s*[}\]])/g, '$1')
-      );
-    } catch {
-      console.warn('❌ JSON parse failed:', v);
-      return null;
+      return JSON.parse(trimmed);
+    } catch (e) {
+      // Пробуем лёгкую очистку "грязного" JSON
+      try {
+        const cleaned = trimmed
+          .replace(/'/g, '"')                    // одинарные кавычки → двойные
+          .replace(/,\s*([}\]])/g, '$1')          // лишние запятые перед закрытием
+          .replace(/(\w+):/g, '"$1":');           // ключи без кавычек → с кавычками
+
+        return JSON.parse(cleaned);
+      } catch (e2) {
+        console.warn('❌ Не удалось распарсить JSON даже после чистки:', trimmed.substring(0, 100) + '...');
+        return trimmed; // возвращаем строку, чтобы данные не потерялись
+      }
     }
+  } else {
+    // Обычный текст, новости и т.п. — просто возвращаем как строку
+    return trimmed;
   }
 }
 
 function safeStringify(v) {
-  return v == null ? "" : JSON.stringify(v);
+  if (v == null) return "";
+
+  // Если это примитив (строка, число, boolean) — не оборачиваем в JSON
+  if (typeof v !== "object") return String(v);
+
+  // Объекты и массивы — в JSON
+  return JSON.stringify(v);
 }
 
 /********************/
