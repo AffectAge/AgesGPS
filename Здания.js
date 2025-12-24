@@ -1,134 +1,246 @@
+/* =========================================================
+   УНИВЕРСАЛЬНЫЙ ДВИЖОК КРИТЕРИЕВ ДЛЯ ПРОИЗВОДСТВА
+   (Google Apps Script, V8)
+   ========================================================= */
+
 /* =======================
-   ПРОИЗВОДСТВО (ХОД) — ФИНАЛЬНАЯ ВЕРСИЯ С ЧИСТОЙ ОБРАБОТКОЙ ПУСТЫХ ЯЧЕЕК
+   ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
    ======================= */
 
-function processProduction(data) {
+function normalizeToArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null) return [];
+  return [value];
+}
+
+function getValueByPath(obj, path) {
+  return path.split('.').reduce(function (o, k) {
+    return o && o[k];
+  }, obj);
+}
+
+/* =======================
+   РАБОТА С ПРОВИНЦИЯМИ
+   ======================= */
+
+/**
+ * Разворачивает data.Провинции:
+ * [ [], [p1,p2], null, [p3] ] -> [p1,p2,p3]
+ */
+function getAllProvinces(provincesData) {
+  if (!Array.isArray(provincesData)) return [];
+
+  return provincesData
+    .flat()
+    .filter(function (p) {
+      return p && typeof p === 'object';
+    });
+}
+
+/**
+ * Находит конкретную провинцию для здания
+ * item.Провинция может быть:
+ *  - названием
+ *  - id
+ */
+function findProvinceForBuilding(allProvinces, provinceKey) {
+  return allProvinces.find(function (p) {
+    return p.Провинция === provinceKey ||
+           p.Название === provinceKey ||
+           p.id === provinceKey;
+  });
+}
+
+/* =======================
+   ЧИСЛОВЫЕ ОПЕРАТОРЫ
+   ======================= */
+
+function evaluateNumericRule(rule, value) {
+  if (typeof value !== 'number') return false;
+
+  if (rule['>'] !== undefined) return value > rule['>'];
+  if (rule['<'] !== undefined) return value < rule['<'];
+  if (rule['>='] !== undefined) return value >= rule['>='];
+  if (rule['<='] !== undefined) return value <= rule['<='];
+  if (rule['=='] !== undefined) return value === rule['=='];
+  if (rule['!='] !== undefined) return value !== rule['!='];
+
+  if (rule.BETWEEN) {
+    return value >= rule.BETWEEN[0] && value <= rule.BETWEEN[1];
+  }
+
+  return false;
+}
+
+/* =======================
+   ЛОГИЧЕСКИЙ ИНТЕРПРЕТАТОР
+   ======================= */
+
+function evaluateRule(rule, provinceValue) {
+
+  if (
+    typeof rule === 'object' &&
+    !Array.isArray(rule) &&
+    Object.keys(rule).some(function (k) {
+      return ['>', '<', '>=', '<=', '==', '!=', 'BETWEEN'].indexOf(k) !== -1;
+    })
+  ) {
+    return evaluateNumericRule(rule, provinceValue);
+  }
+
+  if (typeof rule === 'string') {
+    return normalizeToArray(provinceValue).indexOf(rule) !== -1;
+  }
+
+  if (rule.AND) return rule.AND.every(function (r) { return evaluateRule(r, provinceValue); });
+  if (rule.OR) return rule.OR.some(function (r) { return evaluateRule(r, provinceValue); });
+  if (rule.NOT) return !evaluateRule(rule.NOT, provinceValue);
+  if (rule.NAND) return !rule.NAND.every(function (r) { return evaluateRule(r, provinceValue); });
+  if (rule.NOR) return !rule.NOR.some(function (r) { return evaluateRule(r, provinceValue); });
+
+  if (rule.XOR) {
+    var count = rule.XOR.filter(function (r) {
+      return evaluateRule(r, provinceValue);
+    }).length;
+    return count === 1;
+  }
+
+  return false;
+}
+
+/* =======================
+   ОБЪЯСНЕНИЕ ПРОВАЛА
+   ======================= */
+
+function explainRule(rule, provinceValue) {
+  var value = provinceValue;
+  var has = normalizeToArray(provinceValue);
+
+  if (typeof rule === 'string') {
+    return 'требуется "' + rule + '", но есть [' + (has.join(', ') || 'пусто') + ']';
+  }
+
+  if (typeof rule === 'object' && !Array.isArray(rule)) {
+
+    if (rule['>'] !== undefined) return 'значение ' + value + ' должно быть > ' + rule['>'];
+    if (rule['<'] !== undefined) return 'значение ' + value + ' должно быть < ' + rule['<'];
+    if (rule['>='] !== undefined) return 'значение ' + value + ' должно быть ≥ ' + rule['>='];
+    if (rule['<='] !== undefined) return 'значение ' + value + ' должно быть ≤ ' + rule['<='];
+    if (rule['=='] !== undefined) return 'значение ' + value + ' должно быть = ' + rule['=='];
+    if (rule['!='] !== undefined) return 'значение ' + value + ' не должно быть = ' + rule['!='];
+
+    if (rule.BETWEEN) {
+      return 'значение ' + value + ' должно быть между ' + rule.BETWEEN[0] + ' и ' + rule.BETWEEN[1];
+    }
+
+    if (rule.AND) {
+      return 'не выполнены условия: ' + rule.AND
+        .filter(function (r) { return !evaluateRule(r, provinceValue); })
+        .map(function (r) { return explainRule(r, provinceValue); })
+        .join('; ');
+    }
+
+    if (rule.OR) return 'ни одно из условий OR не выполнено';
+    if (rule.NOT) return 'условие должно быть ложным';
+  }
+
+  return 'неизвестное правило';
+}
+
+/* =======================
+   ПРОВЕРКА КРИТЕРИЕВ
+   ======================= */
+
+function checkProvinceCriteria(province, criteria) {
+  if (!criteria) return { passes: true, reasons: [] };
+
+  var reasons = [];
+
+  for (var key in criteria) {
+    var rule = criteria[key];
+    var value = getValueByPath(province, key);
+
+    if (!evaluateRule(rule, value)) {
+      reasons.push('"' + key + '": ' + explainRule(rule, value));
+    }
+  }
+
+  return { passes: reasons.length === 0, reasons: reasons };
+}
+
+/* =======================
+   ОСНОВНАЯ ФУНКЦИЯ
+   ======================= */
+
+function processCriteriaCheck(data) {
 
   if (!data.Новости) data.Новости = [];
 
-  // Проверка массива построек
-  if (!data.Постройки || !Array.isArray(data.Постройки)) {
-    data.Новости.push("Ошибка: список Постройки отсутствует или не является массивом.");
+  if (!Array.isArray(data.Постройки)) {
+    data.Новости.push('Ошибка: список "Постройки" отсутствует.');
     return;
   }
 
-  let skippedCount = 0;
-  let processedCount = 0;
+  var allProvinces = getAllProvinces(data.Провинции);
 
-  for (const item of data.Постройки) {
-    // === Тихо пропускаем всё "мусорное" ===
-    if (!item || 
-        typeof item !== 'object' || 
-        Array.isArray(item) || 
-        Object.keys(item).length === 0) {
-      skippedCount++;
-      continue;
+  if (allProvinces.length === 0) {
+    data.Новости.push('Ошибка: провинции отсутствуют.');
+    return;
+  }
+
+  var skipped = 0;
+
+  data.Постройки.forEach(function (item) {
+
+    if (!item || typeof item !== 'object') {
+      skipped++;
+      return;
     }
 
-    // Проверяем обязательные поля здания
-    if (!item.Тип || !item.Провинция) {
-      skippedCount++;
-      continue; // молча пропускаем, но считаем
-    }
+    if (item.Активно === false) return;
+    if (!item.Уровень || item.Уровень < 1) item.Уровень = 1;
 
-    // По умолчанию — активно и уровень 1
-    if (item.Активно === undefined) item.Активно = true;
-    if (!item.Уровень || typeof item.Уровень !== 'number' || item.Уровень < 1) {
-      item.Уровень = 1;
-    }
+    var template = BUILDING_TEMPLATES[item.Тип];
+    var reasons = [];
+    var canWork = true;
 
-    if (!item.Активно) continue;
-
-    processedCount++;
-
-    const template = BUILDING_TEMPLATES[item.Тип];
     if (!template) {
-      item.Активно = false;
-      data.Новости.push(`Ошибка: неизвестный тип здания "\( {item.Тип}" в провинции " \){item.Провинция}".`);
-      continue;
+      canWork = false;
+      reasons.push('неизвестный тип постройки');
     }
 
-    // === Проверка провинции ===
-    const provKey = item.Провинция;
-    const provinces = data.Провинции?.[provKey];
+    var province = findProvinceForBuilding(allProvinces, item.Провинция);
 
-    if (!provinces || !Array.isArray(provinces) || provinces.length === 0) {
-      item.Активно = false;
-      data.Новости.push(`Ошибка: провинция "\( {provKey}" не найдена (здание " \){item.Тип}").`);
-      continue;
+    if (!province) {
+      canWork = false;
+      reasons.push('провинция постройки не найдена');
     }
 
-    if (provinces.length > 1) {
-      data.Новости.push(`Предупреждение: провинция "${provKey}" имеет несколько записей — используется первая.`);
-    }
-
-    const province = provinces[0];
-
-    // Проверка наличия ключевых полей в провинции
-    if (!province.Провинция) {
-      data.Новости.push(`Предупреждение: в провинции "${provKey}" отсутствует поле "Провинция" (используется ключ как имя).`);
-    }
-
-    if (!province.Ресурсы || !Array.isArray(province.Ресурсы) || province.Ресурсы.length === 0) {
-      item.Активно = false;
-      data.Новости.push(`Ошибка: в провинции "\( {province.Провинция || provKey}" отсутствует массив Ресурсы (здание " \){item.Тип}" остановлено).`);
-      continue;
-    }
-
-    if (province.Ресурсы.length > 1) {
-      data.Новости.push(`Предупреждение: в провинции "${province.Провинция || provKey}" несколько наборов ресурсов — используется первый.`);
-    }
-
-    const resources = province.Ресурсы[0];
-
-    // Проверка критериев
-    if (!checkProvinceCriteria(province, template.КритерииПровинции)) {
-      item.Активно = false;
-      data.Новости.push(`${province.Провинция || provKey}: ${item.Тип} остановлена — не выполняются критерии провинции.`);
-      continue;
-    }
-
-    // Эффективность
-    const eff = calculateEfficiency(province, template.Эффективность);
-
-    // Проверка входных ресурсов
-    let enough = true;
-    for (const r in template.Вход) {
-      const need = template.Вход[r] * item.Уровень * eff;
-      if ((resources[r] || 0) < need) {
-        enough = false;
-        break;
+    if (canWork && template.КритерииПровинции) {
+      var check = checkProvinceCriteria(province, template.КритерииПровинции);
+      if (!check.passes) {
+        canWork = false;
+        reasons = reasons.concat(check.reasons);
       }
     }
 
-    if (!enough) {
+    if (!canWork) {
       item.Активно = false;
-      data.Новости.push(`${province.Провинция || provKey}: ${item.Тип} остановлена — недостаточно входных ресурсов.`);
-      continue;
+      data.Новости.push(
+        'Постройка "' + item.Тип +
+        '" остановлена (провинция "' + item.Провинция + '"): ' +
+        reasons.join('; ')
+      );
+    } else {
+      data.Новости.push(
+        'Постройка "' + item.Тип +
+        '" (ур. ' + item.Уровень +
+        ', провинция "' + item.Провинция + '") работает'
+      );
     }
+  });
 
-    // Списание и производство
-    for (const r in template.Вход) {
-      const consumed = template.Вход[r] * item.Уровень * eff;
-      resources[r] = Math.max(0, (resources[r] || 0) - consumed);
-    }
-
-    for (const p in template.Выход) {
-      const produced = template.Выход[p] * item.Уровень * eff;
-      resources[p] = (resources[p] || 0) + produced;
-    }
-
-    data.Новости.push(
-      `${province.Провинция || provKey}: ${item.Тип} (ур. ${item.Уровень}) успешно работала (эфф. ${eff.toFixed(2)}).`
-    );
-  }
-
-  // === Итоговое сообщение о пропущенных записях ===
-  if (skippedCount > 0) {
-    data.Новости.push(`Инфо: пропущено ${skippedCount} пустых или некорректных записей в списке построек.`);
-  }
-
-  if (processedCount === 0 && skippedCount > 0) {
-    data.Новости.push("Внимание: ни одно здание не было обработано (возможно, все записи пустые).");
+  if (skipped > 0) {
+    data.Новости.push('Пропущено некорректных записей: ' + skipped);
   }
 }
