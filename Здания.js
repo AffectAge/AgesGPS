@@ -197,45 +197,49 @@ function processCriteriaCheck(data) {
       return;
     }
 
-    if (item.Активно === false) return;
     if (!item.Уровень || item.Уровень < 1) item.Уровень = 1;
 
     var template = BUILDING_TEMPLATES[item.Тип];
     var reasons = [];
-    var canWork = true;
+    var province = null;
+    var provinceName = item.Провинция || '(не указана)';
 
+    // Критические ошибки
     if (!template) {
-      canWork = false;
       reasons.push('неизвестный тип постройки');
+    } else {
+      province = findProvinceForBuilding(allProvinces, item.Провинция);
+      if (!province) {
+        reasons.push('провинция постройки не найдена');
+      }
     }
 
-    var province = findProvinceForBuilding(allProvinces, item.Провинция);
-
-    if (!province) {
-      canWork = false;
-      reasons.push('провинция постройки не найдена');
-    }
-
-    if (canWork && template.КритерииПровинции) {
+    // Проверяем критерии провинции (всегда, даже если постройка была отключена)
+    if (province && template && template.КритерииПровинции) {
       var check = checkProvinceCriteria(province, template.КритерииПровинции);
       if (!check.passes) {
-        canWork = false;
         reasons = reasons.concat(check.reasons);
       }
     }
 
-    if (!canWork) {
+    // Если есть любые проблемы — отключаем постройку
+    if (reasons.length > 0) {
       item.Активно = false;
-      data.Новости.push(
-        'Постройка "' + item.Тип +
-        '" остановлена (провинция "' + item.Провинция + '"): ' +
-        reasons.join('; ')
-      );
-    } else {
+
       data.Новости.push(
         'Постройка "' + item.Тип +
         '" (ур. ' + item.Уровень +
-        ', провинция "' + item.Провинция + '") работает'
+        ', провинция "' + provinceName + '") остановлена: ' +
+        reasons.join('; ')
+      );
+    } else {
+      // Всё хорошо — включаем и сообщаем
+      item.Активно = true;
+
+      data.Новости.push(
+        'Постройка "' + item.Тип +
+        '" (ур. ' + item.Уровень +
+        ', провинция "' + provinceName + '") работает'
       );
     }
   });
