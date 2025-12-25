@@ -116,11 +116,24 @@ function applyLimit(candidates, limit, reason) {
 
 function processCriteriaCheck(data) {
 
-  if (!data.Новости) data.Новости = [];
-  if (!Array.isArray(data.Постройки)) {
-    data.Новости.push('Ошибка: отсутствует список построек.');
+  // === НОРМАЛИЗАЦИЯ ПОСТРОЕК ===
+if (!data.Постройки) {
+  data.Новости.push('Ошибка: отсутствует список построек.');
+  return data;
+}
+
+// Если пришёл объект — обернуть в массив
+if (!Array.isArray(data.Постройки)) {
+  if (typeof data.Постройки === 'object') {
+    data.Постройки = [data.Постройки];
+  } else {
+    data.Новости.push('Ошибка: Постройки должны быть объектом или массивом объектов.');
     return data;
   }
+}
+
+// Плоская нормализация: если есть вложенные массивы, "развернуть" их
+data.Постройки = data.Постройки.flat().filter(b => b && typeof b === 'object');
 
   /* === ГОСУДАРСТВО === */
   var stateId;
