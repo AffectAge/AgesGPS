@@ -1,7 +1,7 @@
 /* =========================================================
-   УНИВЕРСАЛЬНЫЙ ДВИЖОК КРИТЕРИЕВ ДЛЯ ПРОИЗВОДСТВА
+   УНИВЕРСАЛЬНЫЙ ДВИЖОК КРИТЕРИЕВ + ЛИМИТЫ С ПРИОРИТЕТОМ
    (Google Apps Script, V8)
-   Актуальная версия — декабрь 2025
+   Исправленная версия: лимит мира глобальный
    ========================================================= */
 
 /* =======================
@@ -10,148 +10,104 @@
 
 function normalizeToArray(value) {
   if (Array.isArray(value)) return value;
-  if (value === undefined || value === null) return [];
+  if (value === null || value === undefined) return [];
   return [value];
 }
 
 function getValueByPath(obj, path) {
-  return path.split('.').reduce(function (o, k) {
-    return o && o[k];
-  }, obj);
+  return path.split('.').reduce((o, k) => (o ? o[k] : undefined), obj);
 }
 
 /* =======================
-   РАБОТА С ПРОВИНЦИЯМИ
+   ПРОВИНЦИИ
    ======================= */
 
-function getAllProvinces(provincesData) {
-  if (!Array.isArray(provincesData)) return [];
-  return provincesData.flat().filter(p => p && typeof p === 'object');
+function getAllProvinces(data) {
+  if (!Array.isArray(data)) return [];
+  return data.flat().filter(p => p && typeof p === 'object');
 }
 
-function findProvinceForBuilding(allProvinces, provinceKey) {
-  return allProvinces.find(p =>
-    p.Провинция === provinceKey ||
-    p.Название === provinceKey ||
-    p.id === provinceKey
+function findProvince(all, key) {
+  return all.find(p =>
+    p.Провинция === key ||
+    p.Название === key ||
+    p.id === key
   );
 }
 
 /* =======================
-   ЧИСЛОВЫЕ ОПЕРАТОРЫ
+   ПРАВИЛА
    ======================= */
 
 function evaluateNumericRule(rule, value) {
   if (typeof value !== 'number') return false;
-
   if (rule['>'] !== undefined) return value > rule['>'];
   if (rule['<'] !== undefined) return value < rule['<'];
   if (rule['>='] !== undefined) return value >= rule['>='];
   if (rule['<='] !== undefined) return value <= rule['<='];
   if (rule['=='] !== undefined) return value === rule['=='];
   if (rule['!='] !== undefined) return value !== rule['!='];
+  if (rule.BETWEEN) return value >= rule.BETWEEN[0] && value <= rule.BETWEEN[1];
+  return false;
+}
 
+function evaluateRule(rule, value) {
+  if (typeof rule === 'string') {
+    return normalizeToArray(value).includes(rule);
+  }
+
+  if (typeof rule === 'object' && !Array.isArray(rule)) {
+    if (Object.keys(rule).some(k => ['>','<','>=','<=','==','!=','BETWEEN'].includes(k))) {
+      return evaluateNumericRule(rule, value);
+    }
+    if (rule.AND) return rule.AND.every(r => evaluateRule(r, value));
+    if (rule.OR) return rule.OR.some(r => evaluateRule(r, value));
+    if (rule.NOT) return !evaluateRule(rule.NOT, value);
+    if (rule.NAND) return !rule.NAND.every(r => evaluateRule(r, value));
+    if (rule.NOR) return !rule.NOR.some(r => evaluateRule(r, value));
+    if (rule.XOR) return rule.XOR.filter(r => evaluateRule(r, value)).length === 1;
+  }
+  return false;
+}
+
+function explainRule(rule, value) {
+  if (typeof rule === 'string') {
+    return `требуется "${rule}", найдено: [${normalizeToArray(value).join(', ') || 'пусто'}]`;
+  }
   if (rule.BETWEEN) {
-    return value >= rule.BETWEEN[0] && value <= rule.BETWEEN[1];
+    return `значение ${value} должно быть между ${rule.BETWEEN[0]} и ${rule.BETWEEN[1]}`;
   }
-
-  return false;
+  return 'условие не выполнено';
 }
-
-/* =======================
-   ЛОГИЧЕСКИЙ ИНТЕРПРЕТАТОР
-   ======================= */
-
-function evaluateRule(rule, provinceValue) {
-  if (
-    typeof rule === 'object' &&
-    !Array.isArray(rule) &&
-    Object.keys(rule).some(k =>
-      ['>', '<', '>=', '<=', '==', '!=', 'BETWEEN'].includes(k)
-    )
-  ) {
-    return evaluateNumericRule(rule, provinceValue);
-  }
-
-  if (typeof rule === 'string') {
-    return normalizeToArray(provinceValue).includes(rule);
-  }
-
-  if (rule.AND) return rule.AND.every(r => evaluateRule(r, provinceValue));
-  if (rule.OR) return rule.OR.some(r => evaluateRule(r, provinceValue));
-  if (rule.NOT) return !evaluateRule(rule.NOT, provinceValue);
-  if (rule.NAND) return !rule.NAND.every(r => evaluateRule(r, provinceValue));
-  if (rule.NOR) return !rule.NOR.some(r => evaluateRule(r, provinceValue));
-
-  if (rule.XOR) {
-    return rule.XOR.filter(r => evaluateRule(r, provinceValue)).length === 1;
-  }
-
-  return false;
-}
-
-/* =======================
-   ОБЪЯСНЕНИЕ ПРОВАЛА
-   ======================= */
-
-function explainRule(rule, provinceValue) {
-  var value = provinceValue;
-  var has = normalizeToArray(provinceValue);
-
-  if (typeof rule === 'string') {
-    return `требуется "${rule}", но найдено [${has.join(', ') || 'пусто'}]`;
-  }
-
-  if (typeof rule === 'object') {
-    if (rule['>'] !== undefined) return `значение ${value} должно быть > ${rule['>']}`;
-    if (rule['<'] !== undefined) return `значение ${value} должно быть < ${rule['<']}`;
-    if (rule['>='] !== undefined) return `значение ${value} должно быть ≥ ${rule['>=']}`;
-    if (rule['<='] !== undefined) return `значение ${value} должно быть ≤ ${rule['<=']}`;
-    if (rule['=='] !== undefined) return `значение ${value} должно быть = ${rule['==']}`;
-    if (rule['!='] !== undefined) return `значение ${value} не должно быть = ${rule['!=']}`;
-
-    if (rule.BETWEEN) {
-      return `значение ${value} должно быть между ${rule.BETWEEN[0]} и ${rule.BETWEEN[1]}`;
-    }
-
-    if (rule.AND) {
-      return rule.AND
-        .filter(r => !evaluateRule(r, provinceValue))
-        .map(r => explainRule(r, provinceValue))
-        .join('; ');
-    }
-
-    if (rule.OR) {
-      return 'не выполнено ни одно из условий OR';
-    }
-
-    if (rule.NOT) {
-      return 'условие NOT не должно выполняться';
-    }
-  }
-
-  return 'неизвестное правило';
-}
-
-/* =======================
-   ПРОВЕРКА КРИТЕРИЕВ ПРОВИНЦИИ
-   ======================= */
 
 function checkProvinceCriteria(province, criteria) {
-  if (!criteria) return { passes: true, reasons: [] };
-
+  if (!criteria) return [];
   var reasons = [];
-
   for (var key in criteria) {
     var rule = criteria[key];
     var value = getValueByPath(province, key);
-
     if (!evaluateRule(rule, value)) {
       reasons.push(`Параметр "${key}": ${explainRule(rule, value)}`);
     }
   }
+  return reasons;
+}
 
-  return { passes: reasons.length === 0, reasons };
+/* =======================
+   ЛИМИТЫ С ПРИОРИТЕТОМ
+   ======================= */
+
+function applyLimit(candidates, limit, reason) {
+  if (!limit || candidates.length <= limit) return;
+
+  candidates
+    .sort((a, b) => a._turnBuilt - b._turnBuilt) // старые важнее
+    .forEach((item, idx) => {
+      if (idx >= limit) {
+        item._blockedByLimit = true;
+        item._reasons.push(reason);
+      }
+    });
 }
 
 /* =======================
@@ -166,18 +122,14 @@ function processCriteriaCheck(data) {
     return data;
   }
 
-  /* === ИДЕНТИФИКАТОР ГОСУДАРСТВА === */
+  /* === ГОСУДАРСТВО === */
   var stateId;
   if (Array.isArray(data['Идентификатор данных государства']) &&
       Array.isArray(data['Данные государства'])) {
-
     var k = data['Идентификатор данных государства'];
     var v = data['Данные государства'];
-    var idx = k.indexOf('Идентификатор государства');
-
-    if (idx !== -1 && v[idx] !== undefined && v[idx] !== null) {
-      stateId = String(v[idx]).trim();
-    }
+    var i = k.indexOf('Идентификатор государства');
+    if (i !== -1) stateId = String(v[i]).trim();
   }
 
   if (!stateId) {
@@ -186,157 +138,154 @@ function processCriteriaCheck(data) {
   }
 
   /* === ШАБЛОНЫ === */
-  var BUILDING_TEMPLATES = {};
+  var TEMPLATES = {};
   (data['Шаблоны зданий'] || []).forEach(t => {
-    if (t?.Тип) BUILDING_TEMPLATES[t.Тип] = t;
+    if (t?.Тип) TEMPLATES[t.Тип] = t;
   });
 
   /* === ПРОВИНЦИИ === */
   var allProvinces = getAllProvinces(data.Провинции);
-  var ourProvinces = allProvinces.filter(p => String(p.Владелец).trim() === stateId);
 
-  data.Новости.push(`Всего провинций: ${allProvinces.length}`);
-  data.Новости.push(`Провинций нашего государства: ${ourProvinces.length}`);
+  /* === ПОСТРОЙКИ === */
+  var buildings = data.Постройки.filter(b => b && typeof b === 'object');
 
-  var buildings = data.Постройки.filter(p => p && typeof p === 'object');
+  /* === ХОД ПОСТРОЙКИ === */
+  var maxTurn = buildings.reduce(
+    (m, b) => typeof b.ХодСтроительства === 'number' ? Math.max(m, b.ХодСтроительства) : m,
+    0
+  );
 
   /* =======================
-     ПЕРВЫЙ ПРОХОД
+     ПЕРВЫЙ ПРОХОД — ЛОКАЛЬНЫЕ УСЛОВИЯ
      ======================= */
 
-  buildings.forEach(item => {
+  buildings.forEach(b => {
+    b._reasons = [];
+    b._potential = true;
+    b._blockedByLimit = false;
 
-    if (!item.Провинция || !item.Тип) return;
-    if (!item.Уровень || item.Уровень < 1) item.Уровень = 1;
+    if (!b.Тип || !b.Провинция) {
+      b._potential = false;
+      return;
+    }
 
-    var province = findProvinceForBuilding(allProvinces, item.Провинция);
-    if (!province) return;
+    if (typeof b.ХодСтроительства !== 'number') {
+      b.ХодСтроительства = ++maxTurn;
+    }
+    b._turnBuilt = b.ХодСтроительства;
 
-    var template = BUILDING_TEMPLATES[item.Тип];
-    var reasons = [];
+    var template = TEMPLATES[b.Тип];
+    var province = findProvince(allProvinces, b.Провинция);
 
     if (!template) {
-      reasons.push(`Неизвестный тип постройки "${item.Тип}"`);
+      b._reasons.push(`Неизвестный тип постройки "${b.Тип}"`);
+      b._potential = false;
+      return;
     }
 
-    if (template?.КритерииПровинции) {
-      var check = checkProvinceCriteria(province, template.КритерииПровинции);
-      if (!check.passes) reasons.push(...check.reasons);
+    if (!province) {
+      b._reasons.push('Провинция не найдена');
+      b._potential = false;
+      return;
     }
 
-    /* === ТРЕБУЕМЫЕ ПОСТРОЙКИ === */
-    if (template?.ТребуемыеПостройки) {
+    /* Флаг принадлежности */
+    b._isOurProvince = String(province.Владелец).trim() === stateId;
+
+    /* Критерии провинции */
+    var crit = checkProvinceCriteria(province, template.КритерииПровинции);
+    if (crit.length) {
+      b._reasons.push(...crit);
+      b._potential = false;
+    }
+
+    /* Требуемые постройки */
+    if (template.ТребуемыеПостройки) {
       var req = template.ТребуемыеПостройки;
-      var count = buildings.filter(p =>
-        p.Провинция === item.Провинция &&
-        p.Тип === req.Тип &&
-        p !== item
+      var count = buildings.filter(x =>
+        x !== b &&
+        x.Провинция === b.Провинция &&
+        x.Тип === req.Тип
       ).length;
 
       if (count < req.Минимум) {
-        reasons.push(
-          `Требуется минимум ${req.Минимум} построек типа "${req.Тип}" ` +
-          `в провинции, но найдено ${count}.`
+        b._reasons.push(
+          `Требуется минимум ${req.Минимум} "${req.Тип}" в провинции, найдено ${count}`
         );
+        b._potential = false;
       }
     }
-
-    /* === ЛИМИТЫ === */
-    if (template?.Лимит) {
-
-      /* Провинция */
-      if (template.Лимит.Провинция !== undefined) {
-        var provCount = buildings.filter(p =>
-          p.Провинция === item.Провинция &&
-          p.Тип === item.Тип
-        ).length;
-
-        if (provCount > template.Лимит.Провинция) {
-          reasons.push(`Превышен лимит на провинцию для "${item.Тип}"`);
-        } else if (provCount === template.Лимит.Провинция) {
-          data.Новости.push(
-            `Достигнут лимит на провинцию: "${item.Тип}" в ${item.Провинция}`
-          );
-        }
-      }
-
-      /* Государство */
-      if (template.Лимит.Государство !== undefined) {
-        var stateCount = buildings.filter(p => {
-          var pp = findProvinceForBuilding(allProvinces, p.Провинция);
-          return pp &&
-            String(pp.Владелец).trim() === stateId &&
-            p.Тип === item.Тип;
-        }).length;
-
-        if (stateCount > template.Лимит.Государство) {
-          reasons.push(`Превышен лимит на государство для "${item.Тип}"`);
-        } else if (stateCount === template.Лимит.Государство) {
-          data.Новости.push(
-            `Достигнут лимит на государство: "${item.Тип}"`
-          );
-        }
-      }
-    }
-
-    item._failReasons = reasons;
-    item._canWork = reasons.length === 0;
   });
 
   /* =======================
-     ВТОРОЙ ПРОХОД — ЛИМИТ МИРА
+     ВТОРОЙ ПРОХОД — ЛИМИТЫ
      ======================= */
 
-  var byType = {};
-  buildings.forEach(b => {
-    if (b._canWork) {
-      if (!byType[b.Тип]) byType[b.Тип] = [];
-      byType[b.Тип].push(b);
-    }
-  });
+  Object.keys(TEMPLATES).forEach(type => {
+    var t = TEMPLATES[type];
+    if (!t.Лимит) return;
 
-  for (var type in byType) {
-    var template = BUILDING_TEMPLATES[type];
-    if (!template?.Лимит?.Мир) continue;
-
-    var list = byType[type];
-    var limit = template.Лимит.Мир;
-
-    if (list.length === limit) {
-      data.Новости.push(
-        `Достигнут глобальный лимит на мир для "${type}"`
+    /* Провинция */
+    if (t.Лимит.Провинция) {
+      var byProv = {};
+      buildings.forEach(b => {
+        if (b._potential && b.Тип === type) {
+          if (!byProv[b.Провинция]) byProv[b.Провинция] = [];
+          byProv[b.Провинция].push(b);
+        }
+      });
+      Object.values(byProv).forEach(list =>
+        applyLimit(list, t.Лимит.Провинция,
+          `Превышен лимит на провинцию (${t.Лимит.Провинция})`)
       );
     }
 
-    list.forEach((b, i) => {
-      if (i < limit) {
-        b.Активно = true;
-      } else {
-        b.Активно = false;
-        b._failReasons.push('Превышен глобальный лимит на мир');
-      }
-    });
-  }
+    /* Государство (только наши) */
+    if (t.Лимит.Государство) {
+      var stateList = buildings.filter(b =>
+        b._potential && b.Тип === type && b._isOurProvince
+      );
+      applyLimit(stateList, t.Лимит.Государство,
+        `Превышен лимит на государство (${t.Лимит.Государство})`);
+    }
+
+    /* Мир (ВСЕ государства) */
+    if (t.Лимит.Мир) {
+      var worldList = buildings.filter(b =>
+        b._potential && b.Тип === type
+      );
+      applyLimit(worldList, t.Лимит.Мир,
+        `Превышен глобальный лимит (${t.Лимит.Мир})`);
+    }
+  });
 
   /* =======================
      ТРЕТИЙ ПРОХОД — ИТОГ
      ======================= */
 
-  buildings.forEach(item => {
-    if (item._failReasons?.length) {
-      item.Активно = false;
+  buildings.forEach(b => {
+
+    if (!b._isOurProvince) {
+      b.Активно = false;
+    } else if (!b._potential || b._blockedByLimit) {
+      b.Активно = false;
+      if (b._reasons.length) {
+        data.Новости.push(
+          `"${b.Тип}" в ${b.Провинция} остановлена: ${b._reasons.join('; ')}`
+        );
+      }
+    } else {
+      b.Активно = true;
       data.Новости.push(
-        `"${item.Тип}" в ${item.Провинция} остановлена: ${item._failReasons.join('; ')}`
-      );
-    } else if (item.Активно !== false) {
-      item.Активно = true;
-      data.Новости.push(
-        `"${item.Тип}" в ${item.Провинция} работает`
+        `"${b.Тип}" в ${b.Провинция} работает`
       );
     }
 
-    delete item._failReasons;
-    delete item._canWork;
+    delete b._reasons;
+    delete b._potential;
+    delete b._blockedByLimit;
+    delete b._turnBuilt;
+    delete b._isOurProvince;
   });
 
   return data;
