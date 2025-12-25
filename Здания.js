@@ -106,33 +106,33 @@ function explainRule(rule, provinceValue) {
   var has = normalizeToArray(provinceValue);
 
   if (typeof rule === 'string') {
-    return 'требуется "' + rule + '", но есть [' + (has.join(', ') || 'пусто') + ']';
+    return 'требуется наличие "' + rule + '", но в провинции найдено [' + (has.join(', ') || 'пусто') + ']. Чтобы исправить: добавьте "' + rule + '" в соответствующий параметр провинции.';
   }
 
   if (typeof rule === 'object' && !Array.isArray(rule)) {
-    if (rule['>'] !== undefined) return 'значение ' + value + ' должно быть > ' + rule['>'];
-    if (rule['<'] !== undefined) return 'значение ' + value + ' должно быть < ' + rule['<'];
-    if (rule['>='] !== undefined) return 'значение ' + value + ' должно быть ≥ ' + rule['>='];
-    if (rule['<='] !== undefined) return 'значение ' + value + ' должно быть ≤ ' + rule['<='];
-    if (rule['=='] !== undefined) return 'значение ' + value + ' должно быть = ' + rule['=='];
-    if (rule['!='] !== undefined) return 'значение ' + value + ' не должно быть = ' + rule['!='];
+    if (rule['>'] !== undefined) return 'значение ' + value + ' должно быть > ' + rule['>'] + '. Чтобы исправить: увеличьте значение до > ' + rule['>'] + '.';
+    if (rule['<'] !== undefined) return 'значение ' + value + ' должно быть < ' + rule['<'] + '. Чтобы исправить: уменьшите значение до < ' + rule['<'] + '.';
+    if (rule['>='] !== undefined) return 'значение ' + value + ' должно быть ≥ ' + rule['>='] + '. Чтобы исправить: увеличьте значение до ≥ ' + rule['>='] + '.';
+    if (rule['<='] !== undefined) return 'значение ' + value + ' должно быть ≤ ' + rule['<='] + '. Чтобы исправить: уменьшите значение до ≤ ' + rule['<='] + '.';
+    if (rule['=='] !== undefined) return 'значение ' + value + ' должно быть = ' + rule['=='] + '. Чтобы исправить: установите значение равным ' + rule['=='] + '.';
+    if (rule['!='] !== undefined) return 'значение ' + value + ' не должно быть = ' + rule['!='] + '. Чтобы исправить: измените значение на любое, кроме ' + rule['!='] + '.';
 
     if (rule.BETWEEN) {  
-      return 'значение ' + value + ' должно быть между ' + rule.BETWEEN[0] + ' и ' + rule.BETWEEN[1];  
+      return 'значение ' + value + ' должно быть между ' + rule.BETWEEN[0] + ' и ' + rule.BETWEEN[1] + '. Чтобы исправить: скорректируйте значение в диапазон [' + rule.BETWEEN[0] + ', ' + rule.BETWEEN[1] + '].';  
     }  
 
     if (rule.AND) {  
-      return 'не выполнены условия: ' + rule.AND  
+      return 'не выполнены условия AND: ' + rule.AND  
         .filter(function (r) { return !evaluateRule(r, provinceValue); })  
         .map(function (r) { return explainRule(r, provinceValue); })  
         .join('; ');  
     }  
 
-    if (rule.OR) return 'ни одно из условий OR не выполнено';  
-    if (rule.NOT) return 'условие должно быть ложным';
+    if (rule.OR) return 'ни одно из условий OR не выполнено. Чтобы исправить: выполните хотя бы одно из: ' + rule.OR.map(function (r) { return explainRule(r, provinceValue); }).join('; ');  
+    if (rule.NOT) return 'условие должно быть ложным, но оно истинно. Чтобы исправить: инвертируйте условие NOT: ' + explainRule(rule.NOT, provinceValue);
   }
 
-  return 'неизвестное правило';
+  return 'неизвестное правило. Чтобы исправить: проверьте структуру правила.';
 }
 
 /* =======================
@@ -149,7 +149,7 @@ function checkProvinceCriteria(province, criteria) {
     var value = getValueByPath(province, key);
 
     if (!evaluateRule(rule, value)) {  
-      reasons.push('"' + key + '": ' + explainRule(rule, value));  
+      reasons.push('Параметр "' + key + '": ' + explainRule(rule, value));  
     }
   }
 
@@ -248,10 +248,10 @@ function processCriteriaCheck(data) {
     var template = BUILDING_TEMPLATES[item.Тип];
     var reasons = [];
 
-    if (!template) reasons.push('неизвестный тип постройки');
+    if (!template) reasons.push('Неизвестный тип постройки "' + item.Тип + '". Чтобы исправить: добавьте шаблон для "' + item.Тип + '" в "Шаблоны зданий".');
 
     if (item.ПрогрессСтроительства !== undefined && item.ПрогрессСтроительства < 100) {
-      reasons.push('строительство не завершено');
+      reasons.push('Строительство не завершено (прогресс: ' + item.ПрогрессСтроительства + '%). Чтобы исправить: завершите строительство до 100%.');
     }
 
     /* === КРИТЕРИИ ПРОВИНЦИИ === */
@@ -271,7 +271,7 @@ function processCriteriaCheck(data) {
       ).length;
 
       if (count < req.Минимум) {
-        reasons.push(`требуется минимум ${req.Минимум} "${req.Тип}"`);
+        reasons.push(`Требуется минимум \( {req.Минимум} активных построек типа " \){req.Тип}" в той же провинции, но найдено только \( {count}. Чтобы исправить: постройте и активируйте дополнительные " \){req.Тип}".`);
       }
     }
 
@@ -287,7 +287,7 @@ function processCriteriaCheck(data) {
         ).length + 1;
 
         if (provCount > template.Лимит.Провинция) {
-          reasons.push('превышен лимит на провинцию');
+          reasons.push(`Превышен лимит на провинцию для "${item.Тип}": текущее количество ${provCount} > максимум ${template.Лимит.Провинция}. Чтобы исправить: деактивируйте или удалите лишние постройки этого типа в провинции.`);
         }
       }
 
@@ -302,14 +302,14 @@ function processCriteriaCheck(data) {
         }).length + 1;
 
         if (stateCount > template.Лимит.Государство) {
-          reasons.push('превышен лимит на государство');
+          reasons.push(`Превышен лимит на государство для "${item.Тип}": текущее количество ${stateCount} > максимум ${template.Лимит.Государство}. Чтобы исправить: деактивируйте или удалите лишние постройки этого типа в государстве.`);
         }
       }
     }
 
     /* === ЛОЯЛЬНОСТЬ === */
     if (province.Лояльность !== undefined && province.Лояльность < 50) {
-      reasons.push('низкая лояльность провинции');
+      reasons.push(`Низкая лояльность провинции: ${province.Лояльность} < 50. Чтобы исправить: повысьте лояльность провинции до 50 или выше.`);
     }
 
     /* === СРОК РАБОТЫ === */
@@ -321,24 +321,25 @@ function processCriteriaCheck(data) {
       }
 
       if (item.ОставшийсяСрок <= 0) {
-        reasons.push('срок работы истёк');
+        reasons.push(`Срок работы истёк: оставшийся срок ${item.ОставшийсяСрок} <= 0. Чтобы исправить: обновите или перестройте здание для сброса срока.`);
       }
     }
 
     /* === АВАРИИ === */
     if (template?.РискАварии && template.РискАварии[item.Уровень] !== undefined) {
-      if (Math.random() < template.РискАварии[item.Уровень]) {
-        reasons.push('авария');
+      var risk = template.РискАварии[item.Уровень];
+      if (Math.random() < risk) {
+        reasons.push(`Произошла авария (риск для уровня ${item.Уровень}: ${ (risk * 100).toFixed(1) }%). Чтобы исправить: отремонтируйте здание или снизьте риск через улучшения.`);
       }
     }
 
     /* === РЕЗУЛЬТАТ === */
     if (reasons.length) {
       item.Активно = false;
-      data.Новости.push(`"${item.Тип}" (${item.Провинция}) остановлена: ${reasons.join('; ')}`);
+      data.Новости.push(`"${item.Тип}" в провинции ${item.Провинция} остановлена: ${reasons.join('; ')}`);
     } else {
       item.Активно = true;
-      data.Новости.push(`"${item.Тип}" (${item.Провинция}) работает`);
+      data.Новости.push(`"${item.Тип}" в провинции ${item.Провинция} работает успешно!`);
     }
 
     /* === СИНЕРГИЯ === */
@@ -352,12 +353,12 @@ function processCriteriaCheck(data) {
       ).length;
 
       if (synCount >= (syn.Минимум || 1)) {
-        data.Новости.push(`"${item.Тип}" получает бонус: ${syn.Бонус}`);
+        data.Новости.push(`"${item.Тип}" в провинции ${item.Провинция} получает бонус синергии: ${syn.Бонус} (благодаря \( {synCount} " \){syn.Тип}")`);
       }
     }
 
   });
 
-  data.Новости.push('Построек в наших провинциях: ' + buildingsInOurProvinces);
+  data.Новости.push(`Всего построек в наших провинциях: ${buildingsInOurProvinces}`);
   return data;
 }
