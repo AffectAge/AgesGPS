@@ -23,10 +23,6 @@ function getValueByPath(obj, path) {
    РАБОТА С ПРОВИНЦИЯМИ
    ======================= */
 
-/**
- * Разворачивает data.Провинции:
- * [ [], [p1,p2], null, [p3] ] -> [p1,p2,p3]
- */
 function getAllProvinces(provincesData) {
   if (!Array.isArray(provincesData)) return [];
 
@@ -37,12 +33,6 @@ function getAllProvinces(provincesData) {
     });
 }
 
-/**
- * Находит конкретную провинцию для здания
- * item.Провинция может быть:
- *  - названием
- *  - id
- */
 function findProvinceForBuilding(allProvinces, provinceKey) {
   return allProvinces.find(function (p) {
     return p.Провинция === provinceKey ||
@@ -77,7 +67,6 @@ function evaluateNumericRule(rule, value) {
    ======================= */
 
 function evaluateRule(rule, provinceValue) {
-
   if (
     typeof rule === 'object' &&
     !Array.isArray(rule) &&
@@ -121,7 +110,6 @@ function explainRule(rule, provinceValue) {
   }
 
   if (typeof rule === 'object' && !Array.isArray(rule)) {
-
     if (rule['>'] !== undefined) return 'значение ' + value + ' должно быть > ' + rule['>'];
     if (rule['<'] !== undefined) return 'значение ' + value + ' должно быть < ' + rule['<'];
     if (rule['>='] !== undefined) return 'значение ' + value + ' должно быть ≥ ' + rule['>='];
@@ -178,15 +166,51 @@ function processCriteriaCheck(data) {
 
   if (!Array.isArray(data.Постройки)) {
     data.Новости.push('Ошибка: список "Постройки" отсутствует.');
-    return;
+    return data;
+  }
+
+  // === РАБОТА С ШАБЛОНАМИ ===
+  let templatesArray = data['Шаблоны зданий'];
+
+  if (!Array.isArray(templatesArray)) {
+    templatesArray = [];
+    data['Шаблоны зданий'] = templatesArray;
+  }
+
+  var BUILDING_TEMPLATES = {};
+  templatesArray.forEach(function(t) {
+    if (t && t.Тип) {
+      BUILDING_TEMPLATES[t.Тип] = t;
+    }
+  });
+
+  // === СОЗДАНИЕ ДЕФОЛТНОГО ШАБЛОНА ТОЛЬКО В ПЕРВУЮ СВОБОДНУЮ ЯЧЕЙКУ ===
+  if (Object.keys(BUILDING_TEMPLATES).length === 0) {
+    // Проверяем, свободна ли первая ячейка (индекс 0)
+    if (templatesArray.length === 0 || templatesArray[0] == null || templatesArray[0] === '' || typeof templatesArray[0] !== 'object') {
+      var defaultTemplate = {
+        Тип: 'Центр управления',
+        КритерииПровинции: {}
+      };
+
+      BUILDING_TEMPLATES['Центр управления'] = defaultTemplate;
+      templatesArray[0] = defaultTemplate;  // Записываем строго в первую позицию
+      data['Шаблоны зданий'] = templatesArray;
+
+      data.Новости.push('Создан дефолтный шаблон "Центр управления" в первой свободной строке');
+    } else {
+      data.Новости.push('Шаблоны зданий уже содержат данные. Дефолтный шаблон не создан, чтобы не перезаписать существующие.');
+    }
   }
 
   var allProvinces = getAllProvinces(data.Провинции);
 
   if (allProvinces.length === 0) {
     data.Новости.push('Ошибка: провинции отсутствуют.');
-    return;
+    return data;
   }
+
+  var stateId = data.Идентификатор;
 
   var skipped = 0;
 
@@ -201,50 +225,100 @@ function processCriteriaCheck(data) {
 
     var template = BUILDING_TEMPLATES[item.Тип];
     var reasons = [];
-    var province = null;
+    var province = findProvinceForBuilding(allProvinces, item.Провинция);
     var provinceName = item.Провинция || '(не указана)';
 
-    // Критические ошибки
     if (!template) {
-      reasons.push('неизвестный тип постройки');
-    } else {
-      province = findProvinceForBuilding(allProvinces, item.Провинция);
-      if (!province) {
-        reasons.push('провинция постройки не найдена');
-      }
+      reasons.push('неизвестный тип постройки "' + item.Тип + '"');
     }
 
-    // Проверяем критерии провинции (всегда, даже если постройка была отключена)
-    if (province && template && template.КритерииПровинции) {
+    if (!province) {
+      reasons.push('провинция постройки не найдена');
+    }
+
+    if (item.ПрогрессСтроительства !== undefined && item.ПрогрессСтроительства < 100) {
+      reasons.push('строительство не завершено (' + item.ПрогрессСтроительства + '%)');
+    }
+
+    if (template && template.КритерииПровинции && province) {
       var check = checkProvinceCriteria(province, template.КритерииПровинции);
       if (!check.passes) {
         reasons = reasons.concat(check.reasons);
       }
     }
 
-    // Если есть любые проблемы — отключаем постройку
+    if (template && template.ТребуемыеПостройки && province) {
+      var req = template.ТребуемыеПостройки;
+      var count = data.Постройки.filter(p => p.Провинция === item.Провинция && p.Тип === req.Тип && p.Активно && p !== item).length;
+      if (count < req.Минимум) {
+        reasons.push('требуется минимум ' + req.Минимум + ' активных "' + req.Тип + '" в провинции');
+      }
+    }
+
+    if (template && template.Лимит) {
+      if (template.Лимит.Провинция !== undefined) {
+        var provCount = data.Постройки.filter(p => p.Провинция === item.Провинция && p.Тип === item.Тип && p.Активно && p !== item).length + 1;
+        if (provCount > template.Лимит.Провинция) {
+          reasons.push('превышен лимит на провинцию (' + template.Лимит.Провинция + ')');
+        }
+      }
+
+      if (template.Лимит.Государство !== undefined && stateId !== undefined) {
+        var stateCount = data.Постройки.filter(p => {
+          var pProv = findProvinceForBuilding(allProvinces, p.Провинция);
+          return pProv && pProv.Владелец === stateId && p.Тип === item.Тип && p.Активно && p !== item;
+        }).length + 1;
+        if (stateCount > template.Лимит.Государство) {
+          reasons.push('превышен лимит на государство (' + template.Лимит.Государство + ')');
+        }
+      }
+    }
+
+    if (province && province.Лояльность !== undefined && province.Лояльность < 50) {
+      reasons.push('низкая лояльность провинции (' + province.Лояльность + ')');
+    }
+
+    if (template && template.СрокРаботы > 0) {
+      if (item.ОставшийсяСрок === undefined) item.ОставшийсяСрок = template.СрокРаботы;
+      if (item.ОставшийсяСрок <= 0) {
+        reasons.push('срок работы истёк');
+      } else if (item.Активно) {
+        item.ОставшийсяСрок--;
+        if (item.ОставшийсяСрок <= 0) {
+          reasons.push('срок работы истёк в этом ходу');
+        }
+      }
+    }
+
+    if (template && template.РискАварии && template.РискАварии[item.Уровень] !== undefined) {
+      var chance = template.РискАварии[item.Уровень];
+      if (Math.random() < chance) {
+        reasons.push('авария на уровне ' + item.Уровень + ' (шанс ' + (chance * 100).toFixed(1) + '%)');
+      }
+    }
+
+    var level = item.Уровень || 1;
     if (reasons.length > 0) {
       item.Активно = false;
-
-      data.Новости.push(
-        'Постройка "' + item.Тип +
-        '" (ур. ' + item.Уровень +
-        ', провинция "' + provinceName + '") остановлена: ' +
-        reasons.join('; ')
-      );
+      data.Новости.push('Постройка "' + item.Тип + '" (ур. ' + level + ', провинция "' + provinceName + '") остановлена: ' + reasons.join('; '));
     } else {
-      // Всё хорошо — включаем и сообщаем
       item.Активно = true;
+      data.Новости.push('Постройка "' + item.Тип + '" (ур. ' + level + ', провинция "' + provinceName + '") работает');
+    }
 
-      data.Новости.push(
-        'Постройка "' + item.Тип +
-        '" (ур. ' + item.Уровень +
-        ', провинция "' + provinceName + '") работает'
-      );
+    if (item.Активно && template && template.Синергия) {
+      var syn = template.Синергия;
+      var synCount = data.Постройки.filter(p => p.Провинция === item.Провинция && p.Тип === syn.Тип && p.Активно && p !== item).length;
+      var min = syn.Минимум || 1;
+      if (synCount >= min) {
+        data.Новости.push('Постройка "' + item.Тип + '" получает бонус "' + syn.Бонус + '" благодаря ' + synCount + ' "' + syn.Тип + '"');
+      }
     }
   });
 
   if (skipped > 0) {
     data.Новости.push('Пропущено некорректных записей: ' + skipped);
   }
+
+  return data;
 }
