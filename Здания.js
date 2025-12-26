@@ -1,7 +1,8 @@
 /* =========================================================
    УНИВЕРСАЛЬНЫЙ ДВИЖОК КРИТЕРИЕВ + ЛИМИТЫ С ПРИОРИТЕТОМ
    (Google Apps Script, V8)
-   Исправленная версия: лимит мира глобальный
+   Версия: полная поддержка массивов построек в ячейках
+   Исправлено: дублирование сообщений при одинаковых постройках
    ========================================================= */
 
 /* =======================
@@ -23,8 +24,8 @@ function getValueByPath(obj, path) {
    ======================= */
 
 function getAllProvinces(data) {
-  if (!Array.isArray(data)) return [];
-  return data.flat().filter(p => p && typeof p === 'object');
+  if (!data.Провинции) return [];
+  return normalizeToArray(data.Провинции).flat(Infinity).filter(p => p && typeof p === 'object');
 }
 
 function findProvince(all, key) {
@@ -72,7 +73,7 @@ function evaluateRule(rule, value) {
 
 function explainRule(rule, value) {
   if (typeof rule === 'string') {
-    return `требуется "${rule}", найдено: [${normalizeToArray(value).join(', ') || 'пусто'}]`;
+    return `требуется "\( {rule}", найдено: [ \){normalizeToArray(value).join(', ') || 'пусто'}]`;
   }
   if (rule.BETWEEN) {
     return `значение ${value} должно быть между ${rule.BETWEEN[0]} и ${rule.BETWEEN[1]}`;
@@ -116,24 +117,31 @@ function applyLimit(candidates, limit, reason) {
 
 function processCriteriaCheck(data) {
 
-  // === НОРМАЛИЗАЦИЯ ПОСТРОЕК ===
-if (!data.Постройки) {
-  data.Новости.push('Ошибка: отсутствует список построек.');
-  return data;
-}
+  // Инициализация Новости
+  data.Новости = data.Новости || [];
 
-// Если пришёл объект — обернуть в массив
-if (!Array.isArray(data.Постройки)) {
-  if (typeof data.Постройки === 'object') {
-    data.Постройки = [data.Постройки];
-  } else {
-    data.Новости.push('Ошибка: Постройки должны быть объектом или массивом объектов.');
+  // === НОРМАЛИЗАЦИЯ ПОСТРОЕК ===
+  if (!data.Постройки) {
+    data.Новости.push('Ошибка: отсутствует список построек.');
     return data;
   }
-}
 
-// Плоская нормализация: если есть вложенные массивы, "развернуть" их
-data.Постройки = data.Постройки.flat().filter(b => b && typeof b === 'object');
+  // Собираем все валидные постройки с прямой ссылкой на оригинал
+  var buildings = [];
+  normalizeToArray(data.Постройки)
+    .flat(Infinity)
+    .forEach(item => {
+      if (item && typeof item === 'object' && item.Тип && item.Провинция) {
+        var copy = { ...item };
+        copy._originalRef = item; // ссылка на оригинальный объект в data
+        buildings.push(copy);
+      }
+    });
+
+  if (buildings.length === 0) {
+    data.Новости.push('Ошибка: не найдено ни одной валидной постройки (нужны поля Тип и Провинция).');
+    return data;
+  }
 
   /* === ГОСУДАРСТВО === */
   var stateId;
@@ -152,15 +160,14 @@ data.Постройки = data.Постройки.flat().filter(b => b && typeof
 
   /* === ШАБЛОНЫ === */
   var TEMPLATES = {};
-  (data['Шаблоны зданий'] || []).forEach(t => {
-    if (t?.Тип) TEMPLATES[t.Тип] = t;
-  });
+  normalizeToArray(data['Шаблоны зданий'] || [])
+    .flat(Infinity)
+    .forEach(t => {
+      if (t?.Тип) TEMPLATES[t.Тип] = t;
+    });
 
   /* === ПРОВИНЦИИ === */
-  var allProvinces = getAllProvinces(data.Провинции);
-
-  /* === ПОСТРОЙКИ === */
-  var buildings = data.Постройки.filter(b => b && typeof b === 'object');
+  var allProvinces = getAllProvinces(data);
 
   /* === ХОД ПОСТРОЙКИ === */
   var maxTurn = buildings.reduce(
@@ -176,11 +183,6 @@ data.Постройки = data.Постройки.flat().filter(b => b && typeof
     b._reasons = [];
     b._potential = true;
     b._blockedByLimit = false;
-
-    if (!b.Тип || !b.Провинция) {
-      b._potential = false;
-      return;
-    }
 
     if (typeof b.ХодСтроительства !== 'number') {
       b.ХодСтроительства = ++maxTurn;
@@ -223,7 +225,7 @@ data.Постройки = data.Постройки.flat().filter(b => b && typeof
 
       if (count < req.Минимум) {
         b._reasons.push(
-          `Требуется минимум ${req.Минимум} "${req.Тип}" в провинции, найдено ${count}`
+          `Требуется минимум \( {req.Минимум} " \){req.Тип}" в провинции, найдено ${count}`
         );
         b._potential = false;
       }
@@ -238,13 +240,14 @@ data.Постройки = data.Постройки.flat().filter(b => b && typeof
     var t = TEMPLATES[type];
     if (!t.Лимит) return;
 
-    /* Провинция */
+    /* Лимит на провинцию */
     if (t.Лимит.Провинция) {
       var byProv = {};
       buildings.forEach(b => {
         if (b._potential && b.Тип === type) {
-          if (!byProv[b.Провинция]) byProv[b.Провинция] = [];
-          byProv[b.Провинция].push(b);
+          var prov = b.Провинция;
+          if (!byProv[prov]) byProv[prov] = [];
+          byProv[prov].push(b);
         }
       });
       Object.values(byProv).forEach(list =>
@@ -253,7 +256,7 @@ data.Постройки = data.Постройки.flat().filter(b => b && typeof
       );
     }
 
-    /* Государство (только наши) */
+    /* Лимит на государство (только наши провинции) */
     if (t.Лимит.Государство) {
       var stateList = buildings.filter(b =>
         b._potential && b.Тип === type && b._isOurProvince
@@ -262,7 +265,7 @@ data.Постройки = data.Постройки.flat().filter(b => b && typeof
         `Превышен лимит на государство (${t.Лимит.Государство})`);
     }
 
-    /* Мир (ВСЕ государства) */
+    /* Глобальный лимит (весь мир) */
     if (t.Лимит.Мир) {
       var worldList = buildings.filter(b =>
         b._potential && b.Тип === type
@@ -273,32 +276,35 @@ data.Постройки = data.Постройки.flat().filter(b => b && typeof
   });
 
   /* =======================
-     ТРЕТИЙ ПРОХОД — ИТОГ
+     ТРЕТИЙ ПРОХОД — ИТОГ + ЗАПИСЬ В ОРИГИНАЛЫ
      ======================= */
 
   buildings.forEach(b => {
+    var original = b._originalRef;
 
     if (!b._isOurProvince) {
-      b.Активно = false;
+      original.Активно = false;
     } else if (!b._potential || b._blockedByLimit) {
-      b.Активно = false;
-      if (b._reasons.length) {
+      original.Активно = false;
+      if (b._reasons && b._reasons.length > 0) {
         data.Новости.push(
           `"${b.Тип}" в ${b.Провинция} остановлена: ${b._reasons.join('; ')}`
         );
       }
     } else {
-      b.Активно = true;
+      original.Активно = true;
       data.Новости.push(
         `"${b.Тип}" в ${b.Провинция} работает`
       );
     }
 
+    // Очистка временных полей из копии
     delete b._reasons;
     delete b._potential;
     delete b._blockedByLimit;
     delete b._turnBuilt;
     delete b._isOurProvince;
+    delete b._originalRef;
   });
 
   return data;
