@@ -429,6 +429,22 @@ function processCriteriaCheck(data) {
 
     b._isOurProvince = prov._isOur;
 
+/* === ПРОЧНОСТЬ === */
+if (tpl.МинимальнаяПрочность !== undefined) {
+  var durability = b.Прочность;
+
+  if (!evaluateRule(tpl.МинимальнаяПрочность, durability)) {
+    var exp = explainRuleTable(tpl.МинимальнаяПрочность, durability);
+    b._reasons.push(
+      '\n' +
+      '🛠 Прочность постройки\n' +
+      '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
+      exp.lines.join('\n') + '\n'
+    );
+    b._potential = false;
+  }
+}
+
     var pr = checkProvinceCriteria(prov, tpl.КритерииПровинции);
     if (pr.length) {
       b._reasons = b._reasons.concat(pr);
@@ -471,7 +487,6 @@ function processCriteriaCheck(data) {
     }
   }
 
-  /* === ИТОГ === */
   /* === ИТОГ === */
 buildings.forEach(function (b) {
   var o = b._originalRef;
