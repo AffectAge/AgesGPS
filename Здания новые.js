@@ -7,6 +7,18 @@
    ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
    ======================= */
 
+function indent(level) {
+  return '  '.repeat(level);
+}
+
+function hasValue(value, v) {
+  return normalizeToArray(value).indexOf(v) !== -1;
+}
+
+function countTrue(arr) {
+  return arr.filter(Boolean).length;
+}
+
 function buildStateContext(data) {
   var ctx = {};
 
@@ -135,6 +147,141 @@ function explainRule(rule, value) {
        ', найдено: [' + normalizeToArray(value).join(', ') + ']';
 }
 
+function explainRuleTable(rule, value, level) {
+  level = level || 0;
+  var pad = indent(level);
+  var lines = [];
+
+  /* === СТРОКА === */
+  if (typeof rule === 'string') {
+    var ok = hasValue(value, rule);
+    lines.push(
+      pad + (ok ? '☑ ' : '☐ ') + rule
+    );
+    return { ok: ok, lines: lines };
+  }
+
+  /* === МАССИВ === */
+  if (Array.isArray(rule)) {
+    var results = rule.map(function (r) {
+      return explainRuleTable(r, value, level + 1);
+    });
+
+    results.forEach(function (r) {
+      lines = lines.concat(r.lines);
+    });
+
+    return {
+      ok: results.some(function (r) { return r.ok; }),
+      lines: lines
+    };
+  }
+
+  /* === ЧИСЛОВЫЕ === */
+  if (rule.BETWEEN) {
+    var v = value;
+    var ok = typeof v === 'number' &&
+      v >= rule.BETWEEN[0] &&
+      v <= rule.BETWEEN[1];
+
+    lines.push(
+      pad + (ok ? '☑ ' : '❌ ') +
+      'значение между ' + rule.BETWEEN[0] + ' и ' + rule.BETWEEN[1] +
+      ' (найдено: ' + (v === undefined ? 'отсутствует' : v) + ')'
+    );
+    return { ok: ok, lines: lines };
+  }
+
+  var ops = ['>','<','>=','<=','==','!='];
+  for (var i = 0; i < ops.length; i++) {
+    var op = ops[i];
+    if (rule[op] !== undefined) {
+      var ok = typeof value === 'number' &&
+        eval(value + op + rule[op]);
+
+      lines.push(
+        pad + (ok ? '☑ ' : '❌ ') +
+        'значение ' + op + ' ' + rule[op] +
+        ' (найдено: ' + (value === undefined ? 'отсутствует' : value) + ')'
+      );
+      return { ok: ok, lines: lines };
+    }
+  }
+
+  /* === AND === */
+  if (rule.AND) {
+    lines.push(pad + 'Логика: AND (все условия обязательны)');
+    var results = rule.AND.map(function (r) {
+      return explainRuleTable(r, value, level + 1);
+    });
+
+    results.forEach(function (r) {
+      lines = lines.concat(r.lines);
+    });
+
+    return {
+      ok: results.every(function (r) { return r.ok; }),
+      lines: lines
+    };
+  }
+
+  /* === OR === */
+  if (rule.OR) {
+    lines.push(pad + 'Логика: OR (достаточно одного)');
+    var results = rule.OR.map(function (r) {
+      return explainRuleTable(r, value, level + 1);
+    });
+
+    results.forEach(function (r) {
+      lines = lines.concat(r.lines);
+    });
+
+    return {
+      ok: results.some(function (r) { return r.ok; }),
+      lines: lines
+    };
+  }
+
+  /* === XOR === */
+  if (rule.XOR) {
+    lines.push(pad + 'Логика: XOR (ровно одно условие)');
+    var results = rule.XOR.map(function (r) {
+      return explainRuleTable(r, value, level + 1);
+    });
+
+    results.forEach(function (r) {
+      lines = lines.concat(r.lines);
+    });
+
+    var cnt = countTrue(results.map(function (r) { return r.ok; }));
+
+    return {
+      ok: cnt === 1,
+      lines: lines.concat([
+        pad + '→ выполнено ' + cnt + ' из ' + results.length
+      ])
+    };
+  }
+
+  /* === NOT === */
+  if (rule.NOT) {
+    lines.push(pad + 'НЕ должно выполняться:');
+    var r = explainRuleTable(rule.NOT, value, level + 1);
+    lines = lines.concat(r.lines);
+
+    return {
+      ok: !r.ok,
+      lines: lines
+    };
+  }
+
+  /* === FALLBACK === */
+  lines.push(
+    pad + '❌ условие не распознано'
+  );
+  return { ok: false, lines: lines };
+}
+
 function checkProvinceCriteria(province, criteria) {
   if (!criteria) return [];
   var reasons = [];
@@ -153,13 +300,17 @@ function checkStateCriteria(stateCtx, criteria) {
 
   for (var key in criteria) {
     var value = stateCtx[key] || [];
+
     if (!evaluateRule(criteria[key], value)) {
+      var exp = explainRuleTable(criteria[key], value);
+
       reasons.push(
-        'Государственный параметр "' + key + '": ' +
-        explainRule(criteria[key], value)
+        'Государственный параметр "' + key + '":\n' +
+        exp.lines.join('\n')
       );
     }
   }
+
   return reasons;
 }
 
