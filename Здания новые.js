@@ -288,13 +288,13 @@ function checkProvinceCriteria(province, criteria) {
 
   for (var key in criteria) {
     var value = getValueByPath(province, key);
-
     if (!evaluateRule(criteria[key], value)) {
       var exp = explainRuleTable(criteria[key], value);
-
       reasons.push(
-        'Параметр провинции "' + key + '":\n' +
-        exp.lines.join('\n')
+        '\n' +
+        '🏠 ' + key + '\n' +
+        exp.lines.join('\n') + '\n' +
+        '──────────────────────────────'
       );
     }
   }
@@ -308,13 +308,13 @@ function checkStateCriteria(stateCtx, criteria) {
 
   for (var key in criteria) {
     var value = stateCtx[key] || [];
-
     if (!evaluateRule(criteria[key], value)) {
       var exp = explainRuleTable(criteria[key], value);
-
       reasons.push(
-        'Государственный параметр "' + key + '":\n' +
-        exp.lines.join('\n')
+        '\n' +
+        '🏛 ' + key + '\n' +
+        exp.lines.join('\n') + '\n' +
+        '──────────────────────────────'
       );
     }
   }
