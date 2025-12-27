@@ -7,6 +7,33 @@
    ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
    ======================= */
 
+function buildStateContext(data) {
+  var ctx = {};
+
+  var rows = normalizeToArray(data['Данные государства']);
+
+  rows.forEach(function (row) {
+    normalizeToArray(row).forEach(function (cell) {
+
+      for (var key in cell) {
+  if (cell[key] === null || cell[key] === undefined) continue;
+
+  if (!ctx[key]) ctx[key] = [];
+
+  if (Array.isArray(cell[key])) {
+    ctx[key] = ctx[key].concat(cell[key]);
+  } else if (typeof cell[key] === 'object') {
+    ctx[key].push(cell[key]);
+  } else {
+    ctx[key].push(cell[key]);
+  }
+}
+    });
+  });
+
+  return ctx;
+}
+
 function normalizeToArray(value) {
   if (Array.isArray(value)) return value;
   if (value === null || value === undefined) return [];
@@ -104,7 +131,8 @@ function explainRule(rule, value) {
     return explainRule(r, value);
   }).join('; ') + ')';
   if (rule.NOT) return 'не (' + explainRule(rule.NOT, value) + ')';
-  return 'условие не выполнено';
+  return 'не выполнено условие: ' + JSON.stringify(rule) +
+       ', найдено: [' + normalizeToArray(value).join(', ') + ']';
 }
 
 function checkProvinceCriteria(province, criteria) {
@@ -119,13 +147,17 @@ function checkProvinceCriteria(province, criteria) {
   return reasons;
 }
 
-function checkStateCriteria(data, criteria) {
+function checkStateCriteria(stateCtx, criteria) {
   if (!criteria) return [];
   var reasons = [];
+
   for (var key in criteria) {
-    if (!evaluateRule(criteria[key], data[key] || [])) {
-      reasons.push('Государственный параметр "' + key + '": ' +
-        explainRule(criteria[key], data[key] || []));
+    var value = stateCtx[key] || [];
+    if (!evaluateRule(criteria[key], value)) {
+      reasons.push(
+        'Государственный параметр "' + key + '": ' +
+        explainRule(criteria[key], value)
+      );
     }
   }
   return reasons;
@@ -156,6 +188,7 @@ function processCriteriaCheck(data) {
 
   /* === ПОСТРОЙКИ === */
   var buildings = [];
+  var STATE_CONTEXT = buildStateContext(data);
   normalizeToArray(data.Постройки).forEach(function (row) {
     normalizeToArray(row).forEach(function (b) {
       if (b && b.Тип && b.Провинция) {
@@ -244,7 +277,7 @@ function processCriteriaCheck(data) {
     }
 
     if (b._isOurProvince && tpl.КритерииГосударства) {
-      var sr = checkStateCriteria(data, tpl.КритерииГосударства);
+      var sr = checkStateCriteria(STATE_CONTEXT, tpl.КритерииГосударства);
       if (sr.length) {
         b._reasons = b._reasons.concat(sr);
         b._potential = false;
