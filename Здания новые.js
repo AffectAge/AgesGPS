@@ -156,7 +156,7 @@ function explainRuleTable(rule, value, level) {
   if (typeof rule === 'string') {
     var ok = hasValue(value, rule);
     lines.push(
-      pad + (ok ? '☑ ' : '☐ ') + rule
+      pad + (ok ? '✅️ ' : '⏹️ ') + rule
     );
     return { ok: ok, lines: lines };
   }
@@ -185,7 +185,7 @@ function explainRuleTable(rule, value, level) {
       v <= rule.BETWEEN[1];
 
     lines.push(
-      pad + (ok ? '☑ ' : '❌ ') +
+      pad + (ok ? '✅️ ' : '⛔️ ') +
       'значение между ' + rule.BETWEEN[0] + ' и ' + rule.BETWEEN[1] +
       ' (найдено: ' + (v === undefined ? 'отсутствует' : v) + ')'
     );
@@ -200,7 +200,7 @@ function explainRuleTable(rule, value, level) {
         eval(value + op + rule[op]);
 
       lines.push(
-        pad + (ok ? '☑ ' : '❌ ') +
+        pad + (ok ? '✅️ ' : '⛔️ ') +
         'значение ' + op + ' ' + rule[op] +
         ' (найдено: ' + (value === undefined ? 'отсутствует' : value) + ')'
       );
@@ -292,9 +292,9 @@ function checkProvinceCriteria(province, criteria) {
       var exp = explainRuleTable(criteria[key], value);
       reasons.push(
         '\n' +
-        '🏠 ' + key + '\n' +
-        exp.lines.join('\n') + '\n' +
-        '──────────────────────────────'
+        '🏠 ' + key +
+        '\n➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️' + '\n' +
+        exp.lines.join('\n') + '\n'
       );
     }
   }
@@ -312,9 +312,9 @@ function checkStateCriteria(stateCtx, criteria) {
       var exp = explainRuleTable(criteria[key], value);
       reasons.push(
         '\n' +
-        '🏛 ' + key + '\n' +
-        exp.lines.join('\n') + '\n' +
-        '──────────────────────────────'
+        '🏛 ' + key +
+        '\n➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️' + '\n' +
+        exp.lines.join('\n') + '\n'
       );
     }
   }
@@ -472,19 +472,33 @@ function processCriteriaCheck(data) {
   }
 
   /* === ИТОГ === */
-  buildings.forEach(function (b) {
-    var o = b._originalRef;
-    if (!b._isOurProvince || !b._potential || b._blockedByLimit) {
-      o.Активно = false;
-      if (b._reasons.length) {
-        data.Новости.push('"' + b.Тип + '" в ' + b.Провинция +
-          ' остановлена: ' + b._reasons.join('; '));
-      }
-    } else {
-      o.Активно = true;
-      data.Новости.push('"' + b.Тип + '" в ' + b.Провинция + ' работает');
+  /* === ИТОГ === */
+buildings.forEach(function (b) {
+  var o = b._originalRef;
+
+  // Начало рамки для постройки
+  var header = '🧱🧱🧱🧱🧱🧱🧱 Постройка 🧱🧱🧱🧱🧱🧱🧱\n' +
+               '' + b.Тип + ' в ' + b.Провинция + '' +
+               '';
+
+  if (!b._isOurProvince || !b._potential || b._blockedByLimit) {
+    o.Активно = false;
+    if (b._reasons.length) {
+      data.Новости.push(
+        header + '\n' +
+        b._reasons.join('\n') + '\n' +
+        '\n'
+      );
     }
-  });
+  } else {
+    o.Активно = true;
+    data.Новости.push(
+      header + '' +
+      ' работает' +
+      '\n'
+    );
+  }
+});
 
   provinces.forEach(function (p) { delete p._isOur; });
 
