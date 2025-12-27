@@ -285,12 +285,20 @@ function explainRuleTable(rule, value, level) {
 function checkProvinceCriteria(province, criteria) {
   if (!criteria) return [];
   var reasons = [];
+
   for (var key in criteria) {
-    if (!evaluateRule(criteria[key], getValueByPath(province, key))) {
-      reasons.push('Параметр "' + key + '": ' +
-        explainRule(criteria[key], getValueByPath(province, key)));
+    var value = getValueByPath(province, key);
+
+    if (!evaluateRule(criteria[key], value)) {
+      var exp = explainRuleTable(criteria[key], value);
+
+      reasons.push(
+        'Параметр провинции "' + key + '":\n' +
+        exp.lines.join('\n')
+      );
     }
   }
+
   return reasons;
 }
 
