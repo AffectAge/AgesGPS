@@ -75,30 +75,33 @@ function buildBuildingsContext(buildings) {
   return ctx;
 }
 
-function buildActiveBuildingsContext(data) {
+function buildActiveBuildingsContext(data, provincesMap, stateId) {
   var ctx = {
     Провинция: {},
     Государство: {},
     Мир: {}
   };
 
+  // provincesMap — это объект { "Название провинции": true } для наших провинций
   normalizeToArray(data.Постройки).forEach(function (row) {
     normalizeToArray(row).forEach(function (b) {
       if (!b || !b.Тип || !b.Провинция) return;
-      if (b.Активно !== true) return; // ⬅ КЛЮЧЕВО
+      if (b.Активно !== true) return; // только уже активные
 
-      // 🌍 Мир
+      var provKey = b.Провинция;
+      var isOur = provincesMap[provKey];
+
+      // 🌍 Мир — считаем все активные постройки в мире
       ctx.Мир[b.Тип] = (ctx.Мир[b.Тип] || 0) + 1;
 
-      // 🏘 Провинция
-      if (!ctx.Провинция[b.Провинция])
-        ctx.Провинция[b.Провинция] = {};
-      ctx.Провинция[b.Провинция][b.Тип] =
-        (ctx.Провинция[b.Провинция][b.Тип] || 0) + 1;
+      // 🏘 Провинция — считаем все активные в этой конкретной провинции (независимо от владельца)
+      if (!ctx.Провинция[provKey]) ctx.Провинция[provKey] = {};
+      ctx.Провинция[provKey][b.Тип] = (ctx.Провинция[provKey][b.Тип] || 0) + 1;
 
-      // 🏛 Государство
-      ctx.Государство[b.Тип] =
-        (ctx.Государство[b.Тип] || 0) + 1;
+      // 🏛 Государство — только если провинция принадлежит нам
+      if (isOur) {
+        ctx.Государство[b.Тип] = (ctx.Государство[b.Тип] || 0) + 1;
+      }
     });
   });
 
@@ -245,8 +248,8 @@ function explainRuleTable(rule, value, level) {
 
     lines.push(
       pad + (ok ? '✅️ ' : '⛔️ ') +
-      'значение между ' + rule.BETWEEN[0] + ' и ' + rule.BETWEEN[1] +
-      ' (найдено: ' + (v === undefined ? 'отсутствует' : v) + ')'
+      'Значение между ' + rule.BETWEEN[0] + ' и ' + rule.BETWEEN[1] +
+      ' (Найдено: ' + (v === undefined ? 'Отсутствует' : v) + ')'
     );
     return { ok: ok, lines: lines };
   }
@@ -261,7 +264,7 @@ function explainRuleTable(rule, value, level) {
       lines.push(
         pad + (ok ? '✅️ ' : '⛔️ ') +
         'значение ' + op + ' ' + rule[op] +
-        ' (найдено: ' + (value === undefined ? 'отсутствует' : value) + ')'
+        ' (Найдено: ' + (value === undefined ? 'Отсутствует' : value) + ')'
       );
       return { ok: ok, lines: lines };
     }
@@ -470,6 +473,11 @@ function processCriteriaCheck(data) {
 
   data.Новости = data.Новости || [];
 
+var provinces = getAllProvinces(data);
+provinces.forEach(function (p) {
+  p._isOur = String(p.Владелец || '') === stateId;
+});
+
   /* === ПОСТРОЙКИ === */
   var buildings = [];
   var STATE_CONTEXT = buildStateContext(data);
@@ -489,8 +497,6 @@ function processCriteriaCheck(data) {
     return data;
   }
   
-  var ACTIVE_BUILDINGS_CONTEXT = buildActiveBuildingsContext(data);
-
   /* === ГОСУДАРСТВО === */
   var stateId = null;
   if (Array.isArray(data['Идентификатор данных государства']) &&
@@ -506,18 +512,29 @@ function processCriteriaCheck(data) {
     return data;
   }
 
+  /* === ПРОВИНЦИИ === */
+  var provinces = getAllProvinces(data);
+
+  // Создаём быстрый lookup: какие провинции наши
+  var ourProvincesMap = {};
+  provinces.forEach(function (p) {
+    var key = p.Провинция || p.Название || p.id;
+    if (key && String(p.Владелец || '') === stateId) {
+      ourProvincesMap[key] = true;
+    }
+    // Заодно помечаем для удобства (как было раньше)
+    p._isOur = String(p.Владелец || '') === stateId;
+  });
+
+  /* === АКТИВНЫЕ ПОСТРОЙКИ КОНТЕКСТ === */
+  var ACTIVE_BUILDINGS_CONTEXT = buildActiveBuildingsContext(data, ourProvincesMap, stateId);
+
   /* === ШАБЛОНЫ === */
   var TEMPLATES = {};
   normalizeToArray(data['Шаблоны зданий']).forEach(function (row) {
     normalizeToArray(row).forEach(function (t) {
       if (t && t.Тип) TEMPLATES[t.Тип] = t;
     });
-  });
-
-  /* === ПРОВИНЦИИ === */
-  var provinces = getAllProvinces(data);
-  provinces.forEach(function (p) {
-    p._isOur = String(p.Владелец || '') === stateId;
   });
 
   /* === ХОДЫ === */
@@ -555,6 +572,12 @@ function processCriteriaCheck(data) {
     }
 
     b._isOurProvince = prov._isOur;
+
+// ⛔️ Чужая провинция — полностью исключаем из логики
+if (!b._isOurProvince) {
+  b._potential = false;
+  return;
+}
 
 /* === ПРОЧНОСТЬ === */
 if (tpl.МинимальнаяПрочность !== undefined) {
@@ -624,7 +647,7 @@ if (tpl.ТребуемыеРесурсы) {
       fail = true;
       b._reasons.push(
         '\n🏘 Критерии построек в провинции\n' +
-        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
+        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
         r.lines.join('\n')
       );
     }
@@ -640,7 +663,7 @@ if (tpl.ТребуемыеРесурсы) {
       fail = true;
       b._reasons.push(
         '\n🏛 Критерии построек в государстве\n' +
-        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
+        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
         r.lines.join('\n')
       );
     }
@@ -656,7 +679,7 @@ if (tpl.ТребуемыеРесурсы) {
       fail = true;
       b._reasons.push(
         '\n🌍 Критерии построек в мире\n' +
-        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
+        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
         r.lines.join('\n')
       );
     }
