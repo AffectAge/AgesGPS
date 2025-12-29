@@ -405,6 +405,27 @@ function checkFactionCriteria(stateCtx, criteria) {
   return reasons;
 }
 
+function checkStatePropertyCriteria(stateCtx, criteria, title) {
+  if (!criteria) return [];
+  var reasons = [];
+
+  for (var key in criteria) {
+    var value = stateCtx[key];
+
+    if (!evaluateRule(criteria[key], value)) {
+      var exp = explainRuleTable(criteria[key], value);
+      reasons.push(
+        '\n' +
+        title + '\n' +
+        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
+        exp.lines.join('\n') + '\n'
+      );
+    }
+  }
+
+  return reasons;
+}
+
 function checkBuildingCriteria(rule, ctx, level, title) {
   level = level || 0;
   var pad = indent(level);
@@ -649,6 +670,62 @@ if (tpl.ТребуемыеРесурсы) {
         b._potential = false;
       }
     }
+    
+    /* === СТАБИЛЬНОСТЬ ГОСУДАРСТВА === */
+if (b._isOurProvince && tpl.КритерииСтабильностиГосударства) {
+  var r1 = checkStatePropertyCriteria(
+    STATE_CONTEXT,
+    tpl.КритерииСтабильностиГосударства,
+    '⚖️ Стабильность государства'
+  );
+
+  if (r1.length) {
+    b._reasons = b._reasons.concat(r1);
+    b._potential = false;
+  }
+}
+
+/* === КУЛЬТУРЫ === */
+if (b._isOurProvince && tpl.КритерииКультурГосударства) {
+  var r2 = checkStatePropertyCriteria(
+    STATE_CONTEXT,
+    tpl.КритерииКультурГосударства,
+    '🏺 Признанные культуры'
+  );
+
+  if (r2.length) {
+    b._reasons = b._reasons.concat(r2);
+    b._potential = false;
+  }
+}
+
+/* === РЕЛИГИИ === */
+if (b._isOurProvince && tpl.КритерииРелигийГосударства) {
+  var r3 = checkStatePropertyCriteria(
+    STATE_CONTEXT,
+    tpl.КритерииРелигийГосударства,
+    '⛪ Признанные религии'
+  );
+
+  if (r3.length) {
+    b._reasons = b._reasons.concat(r3);
+    b._potential = false;
+  }
+}
+
+/* === РАСЫ === */
+if (b._isOurProvince && tpl.КритерииРасГосударства) {
+  var r4 = checkStatePropertyCriteria(
+    STATE_CONTEXT,
+    tpl.КритерииРасГосударства,
+    '🧬 Признанные расы'
+  );
+
+  if (r4.length) {
+    b._reasons = b._reasons.concat(r4);
+    b._potential = false;
+  }
+}
     
     /* === ФРАКЦИИ ГОСУДАРСТВА === */
 if (b._isOurProvince && tpl.КритерииФракцийГосударства) {
