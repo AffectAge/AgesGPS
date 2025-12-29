@@ -384,6 +384,27 @@ function checkStateCriteria(stateCtx, criteria) {
   return reasons;
 }
 
+function checkFactionCriteria(stateCtx, criteria) {
+  if (!criteria) return [];
+  var reasons = [];
+
+  for (var key in criteria) {
+    var value = stateCtx[key] || [];
+
+    if (!evaluateRule(criteria[key], value)) {
+      var exp = explainRuleTable(criteria[key], value);
+      reasons.push(
+        '\n' +
+        '🏴 Фракции государства\n' +
+        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
+        exp.lines.join('\n') + '\n'
+      );
+    }
+  }
+
+  return reasons;
+}
+
 function checkBuildingCriteria(rule, ctx, level, title) {
   level = level || 0;
   var pad = indent(level);
@@ -473,11 +494,6 @@ function processCriteriaCheck(data) {
 
   data.Новости = data.Новости || [];
 
-var provinces = getAllProvinces(data);
-provinces.forEach(function (p) {
-  p._isOur = String(p.Владелец || '') === stateId;
-});
-
   /* === ПОСТРОЙКИ === */
   var buildings = [];
   var STATE_CONTEXT = buildStateContext(data);
@@ -511,6 +527,8 @@ provinces.forEach(function (p) {
     data.Новости.push('Ошибка: идентификатор государства не найден');
     return data;
   }
+  
+  
 
   /* === ПРОВИНЦИИ === */
   var provinces = getAllProvinces(data);
@@ -632,6 +650,19 @@ if (tpl.ТребуемыеРесурсы) {
       }
     }
     
+    /* === ФРАКЦИИ ГОСУДАРСТВА === */
+if (b._isOurProvince && tpl.КритерииФракцийГосударства) {
+  var fr = checkFactionCriteria(
+    STATE_CONTEXT,
+    tpl.КритерииФракцийГосударства
+  );
+
+  if (fr.length) {
+    b._reasons = b._reasons.concat(fr);
+    b._potential = false;
+  }
+}
+    
       if (tpl.КритерииПостроек) {
 
   var fail = false;
@@ -688,6 +719,7 @@ if (tpl.ТребуемыеРесурсы) {
   if (fail) b._potential = false;
 }
   });
+  
 
   /* === ЛИМИТЫ === */
   for (var type in TEMPLATES) {
