@@ -320,14 +320,3 @@ function applyLaborEffectToBuildingsOurOnly(data) {
     "🏗 Итог по зданиям (труд): обработано " + affected + ", отключено из-за 0 рабочих: " + turnedOff + "."
   );
 }
-
-/* =======================
-   ПУБЛИЧНАЯ ТОЧКА ВХОДА (НА ХОД)
-   ======================= */
-
-function processTurnLaborOurOnly(data) {
-  ensureNews(data);
-  rebuildLaborMarketOurOnly(data);
-  applyLaborEffectToBuildingsOurOnly(data);
-  return data;
-}
