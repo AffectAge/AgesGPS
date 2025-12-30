@@ -237,7 +237,10 @@ function upsertLaborMarketEntry(data, provinceName, population, workforce, deman
       "Население": 0,
       "Рабочая сила": 0,
       "Спрос": 0,
-      "Доля занятости": 0
+      "Доля занятости": 0,
+      "Занятые": 0,
+      "Безработные": 0,
+      "Безработица": 0
     };
     data["Рынок труда"][0].push(entry);
   }
@@ -246,11 +249,23 @@ function upsertLaborMarketEntry(data, provinceName, population, workforce, deman
   entry["Рабочая сила"] = workforce;
   entry["Спрос"] = demand;
 
+  // Доля занятости (как доля заполнения рабочих мест, у тебя было workforce/demand)
+  var occ = null;
   if (occupancyShareNullable !== null && occupancyShareNullable !== undefined) {
-    entry["Доля занятости"] = clamp01(occupancyShareNullable);
+    occ = clamp01(occupancyShareNullable);
   } else {
-    entry["Доля занятости"] = (demand > 0) ? clamp01(workforce / demand) : 0;
+    occ = (demand > 0) ? clamp01(workforce / demand) : 0; // ✅ лучше 0, а не 1
   }
+  entry["Доля занятости"] = occ;
+
+  // ✅ Безработица (по рабочей силе)
+  var employed = Math.min(workforce, demand);
+  var unemployed = Math.max(0, workforce - employed);
+  var unempRate = workforce > 0 ? unemployed / workforce : 0;
+
+  entry["Занятые"] = employed;
+  entry["Безработные"] = unemployed;
+  entry["Безработица"] = clamp01(unempRate);
 
   return entry;
 }
@@ -300,16 +315,25 @@ function rebuildLaborMarketOurOnly(data) {
       " | Население: " + entry["Население"] +
       " | Раб.сила: " + entry["Рабочая сила"] +
       " | Спрос: " + entry["Спрос"] +
-      " | Занятость: " + (Math.round(entry["Доля занятости"] * 1000) / 10) + "%"
+      " | Занятые: " + entry["Занятые"] +
+      " | Безработные: " + entry["Безработные"] +
+      " | Безработица: " + (Math.round(entry["Безработица"] * 1000) / 10) + "%"
     );
-  }
+  } // ✅ ЗАКРЫЛИ for
+
+  // ✅ ИТОГ ПОСЛЕ for
+  var employedTotal = Math.min(totalWorkforce, totalDemand);
+  var unemployedTotal = Math.max(0, totalWorkforce - employedTotal);
+  var unempTotalRate = totalWorkforce > 0 ? unemployedTotal / totalWorkforce : 0;
 
   data.Новости.push(
     "📊 Рынок труда (итог): провинций=" + provinces.length +
     " | Население=" + totalPop +
     " | Раб.сила=" + totalWorkforce +
     " | Спрос=" + totalDemand +
-    (totalDemand > 0 ? " | Средняя занятость=" + (Math.round((totalWorkforce / totalDemand) * 1000) / 10) + "%" : " | Спрос=0")
+    " | Занятые=" + employedTotal +
+    " | Безработные=" + unemployedTotal +
+    " | Безработица=" + (Math.round(unempTotalRate * 1000) / 10) + "%"
   );
 
   return { ok: true, stateId: stateId, ourCount: provinces.length };
