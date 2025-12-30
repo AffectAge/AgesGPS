@@ -1,10 +1,35 @@
 /* =========================================================
-   РЫНОК ТРУДА (БАЗОВЫЙ) — ТОЛЬКО НАШИ ПРОВИНЦИИ
-   Вариант: data["Данные государства"] — ОДИН JSON-ОБЪЕКТ
-   - Коэффициент рабочей силы хранится в JSON: data["Данные государства"]["Коэффициент рабочей силы"]
-   - Рынок труда хранится в data["Рынок труда"]
-   - Добавлены новости (data.Новости)
+   РЫНОК ТРУДА (БАЗОВЫЙ) — ОБНОВЛЁННЫЙ ПОД ТВОЙ ФОРМАТ "ЯЧЕЙКИ"
+   Google Apps Script
+
+   КЛЮЧЕВОЕ ОБНОВЛЕНИЕ:
+   ✅ Читаем параметры государства ТОЛЬКО из data["Данные государства"],
+      где формат может быть 1D или 2D (ячейка/строка из Sheets):
+
+      1D:
+      data["Данные государства"] = [
+        {"Идентификатор государства": 62},
+        {"Коэффициент рабочей силы": 0.4}
+      ]
+
+      2D:
+      data["Данные государства"] = [
+        [
+          {"Идентификатор государства": 62},
+          {"Коэффициент рабочей силы": 0.4}
+        ]
+      ]
+
+   ❌ Старый keys/vals (data["Идентификатор данных государства"]) больше не используется
+
+   Остальное:
+   ✅ Рынок труда, рабочая сила и занятость считаются ТОЛЬКО для провинций нашего государства
+   ✅ Рынок труда хранится в data["Рынок труда"]
+   ✅ "Доля занятости" хранится в записи рынка труда провинции
+   ✅ Новости в data.Новости
+   ✅ Отказоустойчивость + понятные сообщения
    ========================================================= */
+
 
 /* =======================
    ВСПОМОГАТЕЛЬНЫЕ
@@ -14,6 +39,10 @@ function normalizeToArray(value) {
   if (Array.isArray(value)) return value;
   if (value === null || value === undefined) return [];
   return [value];
+}
+
+function ensureNews(data) {
+  if (!Array.isArray(data.Новости)) data.Новости = [];
 }
 
 function clamp01(x) {
@@ -30,45 +59,79 @@ function ensure2DArrayField(data, fieldName) {
   if (data[fieldName].length === 0) data[fieldName] = [[]];
 }
 
-function ensureNews(data) {
-  if (!Array.isArray(data.Новости)) data.Новости = [];
-}
-
 /* =======================
-   ГОСУДАРСТВО (JSON)
+   ГОСУДАРСТВО: читаем из "ячейки" data["Данные государства"]
    ======================= */
 
-function getStateObject(data) {
-  var s = data["Данные государства"];
-  return (s && typeof s === "object" && !Array.isArray(s)) ? s : null;
+/**
+ * Ищет параметр в data["Данные государства"] (1D/2D массив объектов).
+ * Возвращает значение или undefined.
+ */
+function getStateParamFromCell(data, key) {
+  var root = data ? data["Данные государства"] : null;
+  if (root === null || root === undefined) return undefined;
+
+  // flatten 2D -> 1D
+  var flat = [];
+  normalizeToArray(root).forEach(function (row) {
+    normalizeToArray(row).forEach(function (cell) {
+      flat.push(cell);
+    });
+  });
+
+  for (var i = 0; i < flat.length; i++) {
+    var obj = flat[i];
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+    }
+  }
+
+  return undefined;
 }
 
-function getStateId(data) {
-  var s = getStateObject(data);
-  if (!s) return null;
-  var v = s["Идентификатор государства"];
-  if (v === null || v === undefined) return null;
-  return String(v).trim() || null;
+function getStateIdSafe(data) {
+  ensureNews(data);
+
+  var v = getStateParamFromCell(data, "Идентификатор государства");
+  if (v === undefined || v === null || String(v).trim() === "") {
+    data.Новости.push("⛔ Рынок труда: не найден 'Идентификатор государства' в data['Данные государства'] (ячейка JSON).");
+    return null;
+  }
+  return String(v).trim();
 }
 
-function getWorkforceCoefficient(data) {
-  var s = getStateObject(data);
-  if (!s) return 0;
-  var v = Number(s["Коэффициент рабочей силы"]);
-  return isNaN(v) ? 0 : clamp01(v);
+function getWorkforceCoefficientSafe(data) {
+  ensureNews(data);
+
+  var v = getStateParamFromCell(data, "Коэффициент рабочей силы");
+  if (v === undefined || v === null || v === "") {
+    data.Новости.push("⚠️ Рынок труда: не найден 'Коэффициент рабочей силы' в data['Данные государства']. Принято 0.");
+    return 0;
+  }
+
+  var num = Number(v);
+  if (isNaN(num)) {
+    data.Новости.push("⚠️ Рынок труда: 'Коэффициент рабочей силы' не число (" + String(v) + "). Принято 0.");
+    return 0;
+  }
+
+  var clamped = clamp01(num);
+  if (clamped !== num) {
+    data.Новости.push("⚠️ Рынок труда: 'Коэффициент рабочей силы' вне [0..1] (" + num + "). Обрезано до " + clamped + ".");
+  }
+
+  return clamped;
 }
 
 /* =======================
-   ПРОВИНЦИИ (ТОЛЬКО НАШИ)
+   ПРОВИНЦИИ: только наши
    ======================= */
 
 function getAllProvincesFlat(data) {
   if (!Array.isArray(data.Провинции)) return [];
-  return normalizeToArray(data.Провинции).reduce(function (acc, row) {
-    return acc.concat(normalizeToArray(row));
-  }, []).filter(function (p) {
-    return p && typeof p === "object" && p.Провинция;
-  });
+  return normalizeToArray(data.Провинции)
+    .reduce(function (acc, row) { return acc.concat(normalizeToArray(row)); }, [])
+    .filter(function (p) { return p && typeof p === "object" && p.Провинция; });
 }
 
 function buildOurProvincesMap(data, stateId) {
@@ -83,26 +146,9 @@ function buildOurProvincesMap(data, stateId) {
 }
 
 /* =======================
-   РЫНОК ТРУДА
+   НАСЕЛЕНИЕ / POP
    ======================= */
 
-function normalizeLaborMarket(data) {
-  ensure2DArrayField(data, "Рынок труда");
-}
-
-function getLaborMarketByProvince(data, provinceName) {
-  if (!Array.isArray(data["Рынок труда"])) return null;
-  var flat = data["Рынок труда"].reduce(function (acc, row) {
-    return acc.concat(normalizeToArray(row));
-  }, []);
-  for (var i = 0; i < flat.length; i++) {
-    var r = flat[i];
-    if (r && r.Провинция === provinceName) return r;
-  }
-  return null;
-}
-
-/* === POP -> Население провинции === */
 function calculatePopulationTotal(data, provinceName) {
   if (!Array.isArray(data.Население)) return 0;
 
@@ -123,20 +169,20 @@ function calculatePopulationTotal(data, provinceName) {
       }
     }
   }
+
   return Math.max(0, Math.floor(total));
 }
 
-/* === Рабочая сила = население * коэффициент === */
-function calculateWorkforceFromPopulation(data, provinceName) {
-  var coef = getWorkforceCoefficient(data);
-  if (coef <= 0) return 0;
+function calculateWorkforceFromPopulation(data, provinceName, workforceCoef) {
   var popTotal = calculatePopulationTotal(data, provinceName);
-  return Math.max(0, Math.floor(popTotal * coef));
+  if (!workforceCoef || workforceCoef <= 0) return 0;
+  return Math.max(0, Math.floor(popTotal * workforceCoef));
 }
 
-/* === Спрос = сумма "Рабочие места" активных зданий в провинции ===
-   Мы вызываем только для наших провинций, но оставляем защиту на b._isOurProvince если поле уже есть.
-*/
+/* =======================
+   ПОСТРОЙКИ: спрос
+   ======================= */
+
 function calculateLaborDemand(data, provinceName) {
   if (!Array.isArray(data.Постройки)) return 0;
 
@@ -150,7 +196,7 @@ function calculateLaborDemand(data, provinceName) {
       if (!b || typeof b !== "object") continue;
       if (b.Провинция !== provinceName) continue;
       if (b.Активно === false) continue;
-      if (b._isOurProvince === false) continue; // если кто-то выставил флаг
+      if (b._isOurProvince === false) continue; // страховка
       if (typeof b["Рабочие места"] !== "number") continue;
 
       demand += b["Рабочие места"];
@@ -160,7 +206,27 @@ function calculateLaborDemand(data, provinceName) {
   return Math.max(0, Math.floor(demand));
 }
 
-function upsertLaborMarketEntry(data, provinceName, workforce, demand, occupancyShareNullable) {
+/* =======================
+   РЫНОК ТРУДА: хранение
+   ======================= */
+
+function normalizeLaborMarket(data) {
+  ensure2DArrayField(data, "Рынок труда");
+}
+
+function getLaborMarketByProvince(data, provinceName) {
+  if (!Array.isArray(data["Рынок труда"])) return null;
+  var flat = data["Рынок труда"].reduce(function (acc, row) {
+    return acc.concat(normalizeToArray(row));
+  }, []);
+  for (var i = 0; i < flat.length; i++) {
+    var r = flat[i];
+    if (r && r.Провинция === provinceName) return r;
+  }
+  return null;
+}
+
+function upsertLaborMarketEntry(data, provinceName, population, workforce, demand, occupancyShareNullable) {
   normalizeLaborMarket(data);
 
   var entry = getLaborMarketByProvince(data, provinceName);
@@ -176,12 +242,10 @@ function upsertLaborMarketEntry(data, provinceName, workforce, demand, occupancy
     data["Рынок труда"][0].push(entry);
   }
 
-  entry["Население"] = calculatePopulationTotal(data, provinceName);
+  entry["Население"] = population;
   entry["Рабочая сила"] = workforce;
   entry["Спрос"] = demand;
 
-  // Пользовательское правило: доля занятости хранится в рынке труда.
-  // Если occupancyShareNullable передан — используем его, иначе рассчитываем базово.
   if (occupancyShareNullable !== null && occupancyShareNullable !== undefined) {
     entry["Доля занятости"] = clamp01(occupancyShareNullable);
   } else {
@@ -191,64 +255,68 @@ function upsertLaborMarketEntry(data, provinceName, workforce, demand, occupancy
   return entry;
 }
 
-/* === ПЕРЕСБОРКА РЫНКА ТРУДА: только наши провинции + новости === */
+/* =======================
+   ПЕРЕСБОРКА РЫНКА ТРУДА: только наши + новости
+   ======================= */
+
 function rebuildLaborMarketOurOnly(data) {
   ensureNews(data);
   normalizeLaborMarket(data);
 
-  // очищаем и пересобираем
   data["Рынок труда"] = [[]];
 
-  var stateId = getStateId(data);
-  if (!stateId) {
-    data.Новости.push("⛔ Рынок труда: не найден 'Идентификатор государства' в data['Данные государства'] (JSON).");
-    return { stateId: null, ourCount: 0 };
-  }
+  var stateId = getStateIdSafe(data);
+  if (!stateId) return { ok: false, stateId: null, ourCount: 0 };
 
-  var coef = getWorkforceCoefficient(data);
-  if (coef <= 0) {
-    data.Новости.push("⚠️ Рынок труда: 'Коэффициент рабочей силы' = 0 (или отсутствует). Рабочая сила будет 0.");
-  }
+  var coef = getWorkforceCoefficientSafe(data);
 
   var ourMap = buildOurProvincesMap(data, stateId);
   var provinces = Object.keys(ourMap);
 
+  var totalPop = 0;
   var totalWorkforce = 0;
   var totalDemand = 0;
+
+  if (provinces.length === 0) {
+    data.Новости.push("⚠️ Рынок труда: у государства " + stateId + " нет провинций (или не заполнен 'Владелец').");
+    return { ok: true, stateId: stateId, ourCount: 0 };
+  }
 
   for (var i = 0; i < provinces.length; i++) {
     var provName = provinces[i];
 
-    var workforce = calculateWorkforceFromPopulation(data, provName);
+    var popTotal = calculatePopulationTotal(data, provName);
+    var workforce = calculateWorkforceFromPopulation(data, provName, coef);
     var demand = calculateLaborDemand(data, provName);
 
+    totalPop += popTotal;
     totalWorkforce += workforce;
     totalDemand += demand;
 
-    var entry = upsertLaborMarketEntry(data, provName, workforce, demand, null);
+    var entry = upsertLaborMarketEntry(data, provName, popTotal, workforce, demand, null);
 
-    // Новости по провинции (детализация). Если будет слишком шумно — можно отключить.
     data.Новости.push(
       "👷 Рынок труда: " + provName +
       " | Население: " + entry["Население"] +
       " | Раб.сила: " + entry["Рабочая сила"] +
       " | Спрос: " + entry["Спрос"] +
-      " | Доля занятости: " + Math.round(entry["Доля занятости"] * 1000) / 10 + "%"
+      " | Занятость: " + (Math.round(entry["Доля занятости"] * 1000) / 10) + "%"
     );
   }
 
   data.Новости.push(
-    "📊 Рынок труда (итог): провинций нашего государства: " + provinces.length +
-    " | Раб.сила: " + totalWorkforce +
-    " | Спрос: " + totalDemand +
-    (totalDemand > 0 ? " | Средняя занятость: " + (Math.round((totalWorkforce / totalDemand) * 1000) / 10) + "%" : " | Спрос=0")
+    "📊 Рынок труда (итог): провинций=" + provinces.length +
+    " | Население=" + totalPop +
+    " | Раб.сила=" + totalWorkforce +
+    " | Спрос=" + totalDemand +
+    (totalDemand > 0 ? " | Средняя занятость=" + (Math.round((totalWorkforce / totalDemand) * 1000) / 10) + "%" : " | Спрос=0")
   );
 
-  return { stateId: stateId, ourCount: provinces.length };
+  return { ok: true, stateId: stateId, ourCount: provinces.length };
 }
 
 /* =======================
-   ЗДАНИЯ: УКОМПЛЕКТОВАННОСТЬ
+   ЗДАНИЯ: как "понимают" рабочих (без профессий)
    ======================= */
 
 function getBuildingStaffingSimple(building, laborEntry) {
@@ -262,16 +330,18 @@ function getBuildingStaffingSimple(building, laborEntry) {
   return { Рабочие: workers, Эффективность: eff };
 }
 
-/* Применяем эффект труда к зданиям только в наших провинциях + новости */
 function applyLaborEffectToBuildingsOurOnly(data) {
   ensureNews(data);
 
-  var stateId = getStateId(data);
+  var stateId = getStateIdSafe(data);
   if (!stateId) return;
 
   var ourMap = buildOurProvincesMap(data, stateId);
 
-  if (!Array.isArray(data.Постройки)) return;
+  if (!Array.isArray(data.Постройки)) {
+    data.Новости.push("⚠️ Рынок труда: data.Постройки отсутствует или не массив — здания не обработаны.");
+    return;
+  }
 
   var rows = normalizeToArray(data.Постройки);
   var affected = 0;
@@ -283,7 +353,8 @@ function applyLaborEffectToBuildingsOurOnly(data) {
       var b = row[j];
       if (!b || typeof b !== "object") continue;
       if (!b.Провинция) continue;
-      if (!ourMap[b.Провинция]) continue; // ключевое: только наши провинции
+
+      if (!ourMap[b.Провинция]) continue;
 
       var labor = getLaborMarketByProvince(data, b.Провинция);
       var s = getBuildingStaffingSimple(b, labor);
@@ -293,32 +364,27 @@ function applyLaborEffectToBuildingsOurOnly(data) {
 
       affected++;
 
-      // Базовое правило: если работников нет — выключаем (можно изменить позже на "работает с 0%")
       if (s.Рабочие <= 0) {
         if (b.Активно !== false) turnedOff++;
         b.Активно = false;
 
         data.Новости.push(
-          "⛔ Недостаток рабочей силы: " + (b.Тип || "Здание") +
-          " в " + b.Провинция +
-          " | Раб.мест: " + (b["Рабочие места"] || 0) +
-          " | Рабочие: 0 → отключено"
+          "⛔ Труд: " + (b.Тип || "Здание") + " (" + b.Провинция + ") " +
+          "| Раб.мест=" + (b["Рабочие места"] || 0) +
+          " | Рабочие=0 → отключено"
         );
       } else {
         data.Новости.push(
-          "🏭 Труд: " + (b.Тип || "Здание") +
-          " в " + b.Провинция +
-          " | Раб.мест: " + (b["Рабочие места"] || 0) +
-          " | Рабочие: " + s.Рабочие +
-          " | Эффективность: " + (Math.round(s.Эффективность * 1000) / 10) + "%"
+          "🏭 Труд: " + (b.Тип || "Здание") + " (" + b.Провинция + ") " +
+          "| Раб.мест=" + (b["Рабочие места"] || 0) +
+          " | Рабочие=" + s.Рабочие +
+          " | Эфф=" + (Math.round(s.Эффективность * 1000) / 10) + "%"
         );
       }
     }
   }
 
-  data.Новости.push(
-    "🏗 Итог по зданиям (труд): обработано " + affected + ", отключено из-за 0 рабочих: " + turnedOff + "."
-  );
+  data.Новости.push("🏗 Труд (итог): обработано зданий=" + affected + ", отключено из-за 0 рабочих=" + turnedOff + ".");
 }
 
 /* =======================
@@ -327,7 +393,13 @@ function applyLaborEffectToBuildingsOurOnly(data) {
 
 function processTurnLaborOurOnly(data) {
   ensureNews(data);
-  rebuildLaborMarketOurOnly(data);
-  applyLaborEffectToBuildingsOurOnly(data);
+
+  var res = rebuildLaborMarketOurOnly(data);
+  if (res && res.ok) {
+    applyLaborEffectToBuildingsOurOnly(data);
+  } else {
+    data.Новости.push("⛔ Рынок труда: пропуск обработки зданий из-за ошибок чтения данных государства.");
+  }
+
   return data;
 }
