@@ -59,6 +59,49 @@ function ensure2DArrayField(data, fieldName) {
   if (data[fieldName].length === 0) data[fieldName] = [[]];
 }
 
+// Функция расчёта рабочих мест по уровню
+function computeRequiredWorkersByLevel(base, level, growthCoef) {
+  base = Number(base) || 0;
+  level = Math.max(1, Math.floor(Number(level) || 1));
+  growthCoef = Number(growthCoef);
+  if (isNaN(growthCoef)) growthCoef = 0.8;
+
+  // base * (1 + growthCoef * (level - 1))
+  var slots = base * (1 + growthCoef * (level - 1));
+  return Math.max(0, Math.floor(slots));
+}
+
+function buildTemplatesMap(data) {
+  var map = {};
+  normalizeToArray(data["Шаблоны зданий"]).forEach(function (row) {
+    normalizeToArray(row).forEach(function (t) {
+      if (t && t.Тип) map[t.Тип] = t;
+    });
+  });
+  return map;
+}
+
+function getBuildingWorkSlots(data, templatesMap, building) {
+  if (!building || typeof building !== "object") return 0;
+
+  // 1) если в здании явно задано число — используем его
+  if (typeof building["Рабочие места"] === "number") {
+    return Math.max(0, Math.floor(building["Рабочие места"]));
+  }
+
+  // 2) иначе — считаем по шаблону
+  var tpl = templatesMap && building.Тип ? templatesMap[building.Тип] : null;
+  if (!tpl || !tpl.Труд) return 0;
+
+  var base = tpl.Труд.База;
+  var k = tpl.Труд.ПриростЗаУровень;
+
+  // уровень здания: поддержим "Уровень" или "Ур."
+  var lvl = building.Уровень !== undefined ? building.Уровень : (building["Ур."] !== undefined ? building["Ур."] : 1);
+
+  return computeRequiredWorkersByLevel(base, lvl, k);
+}
+
 /* =======================
    ГОСУДАРСТВО: читаем из "ячейки" data["Данные государства"]
    ======================= */
@@ -183,7 +226,7 @@ function calculateWorkforceFromPopulation(data, provinceName, workforceCoef) {
    ПОСТРОЙКИ: спрос
    ======================= */
 
-function calculateLaborDemand(data, provinceName) {
+function calculateLaborDemand(data, provinceName, templatesMap) {
   if (!Array.isArray(data.Постройки)) return 0;
 
   var demand = 0;
@@ -196,10 +239,11 @@ function calculateLaborDemand(data, provinceName) {
       if (!b || typeof b !== "object") continue;
       if (b.Провинция !== provinceName) continue;
       if (b.Активно !== true) continue;
-      if (b._isOurProvince === false) continue; // страховка
-      if (typeof b["Рабочие места"] !== "number") continue;
 
-      demand += b["Рабочие места"];
+      var slots = getBuildingWorkSlots(data, templatesMap, b);
+      if (slots <= 0) continue;
+
+      demand += slots;
     }
   }
 
@@ -280,6 +324,8 @@ function rebuildLaborMarketOurOnly(data) {
 
   data["Рынок труда"] = [[]];
 
+var templatesMap = buildTemplatesMap(data);
+
   var stateId = getStateIdSafe(data);
   if (!stateId) return { ok: false, stateId: null, ourCount: 0 };
 
@@ -302,7 +348,7 @@ function rebuildLaborMarketOurOnly(data) {
 
     var popTotal = calculatePopulationTotal(data, provName);
     var workforce = calculateWorkforceFromPopulation(data, provName, coef);
-    var demand = calculateLaborDemand(data, provName);
+    var demand = calculateLaborDemand(data, provName, templatesMap);
 
     totalPop += popTotal;
     totalWorkforce += workforce;
@@ -360,6 +406,8 @@ function applyLaborEffectToBuildingsOurOnly(data) {
   var stateId = getStateIdSafe(data);
   if (!stateId) return;
 
+var templatesMap = buildTemplatesMap(data);
+
   var ourMap = buildOurProvincesMap(data, stateId);
 
   if (!Array.isArray(data.Постройки)) {
@@ -384,6 +432,8 @@ function applyLaborEffectToBuildingsOurOnly(data) {
       b._Рабочие = 0;
       b._ЭффективностьТруда = 0;
 
+affected++;
+
       data.Новости.push(
         "⏸ Труд: " + (b.Тип || "Здание") + " (" + b.Провинция + ") " +
         "| Активно=false → рабочих=0"
@@ -392,7 +442,25 @@ function applyLaborEffectToBuildingsOurOnly(data) {
     }
 
       var labor = getLaborMarketByProvince(data, b.Провинция);
-      var s = getBuildingStaffingSimple(b, labor);
+      var slots = getBuildingWorkSlots(data, templatesMap, b);
+
+if (slots <= 0) {
+  b._РабочиеМеста = 0;
+  b._Рабочие = 0;
+  b._ЭффективностьТруда = 0;
+
+  affected++;
+
+  data.Новости.push(
+    "⚠️ Труд: " + (b.Тип || "Здание") + " (" + b.Провинция + ") " +
+    "| Раб.мест=0 (нет 'Рабочие места' и/или tpl.Труд) → пропуск"
+  );
+  continue;
+}
+
+b._РабочиеМеста = slots;
+var tmp = { "Рабочие места": slots };
+var s = getBuildingStaffingSimple(tmp, labor);
 
       b._Рабочие = s.Рабочие;
       b._ЭффективностьТруда = s.Эффективность;
@@ -404,14 +472,14 @@ function applyLaborEffectToBuildingsOurOnly(data) {
         b.Активно = false;
 
         data.Новости.push(
-          "⛔ Труд: " + (b.Тип || "Здание") + " (" + b.Провинция + ") " +
-          "| Раб.мест=" + (b["Рабочие места"] || 0) +
-          " | Рабочие=0 → отключено"
-        );
+  "⛔ Труд: " + (b.Тип || "Здание") + " (" + b.Провинция + ") " +
+  "| Раб.мест=" + slots +
+  " | Рабочие=0 → отключено"
+);
       } else {
         data.Новости.push(
           "🏭 Труд: " + (b.Тип || "Здание") + " (" + b.Провинция + ") " +
-          "| Раб.мест=" + (b["Рабочие места"] || 0) +
+          "| Раб.мест=" + slots +
           " | Рабочие=" + s.Рабочие +
           " | Эфф=" + (Math.round(s.Эффективность * 1000) / 10) + "%"
         );
