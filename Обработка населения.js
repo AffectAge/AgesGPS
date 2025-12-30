@@ -195,7 +195,7 @@ function calculateLaborDemand(data, provinceName) {
       var b = row[j];
       if (!b || typeof b !== "object") continue;
       if (b.Провинция !== provinceName) continue;
-      if (b.Активно === false) continue;
+      if (b.Активно !== true) continue;
       if (b._isOurProvince === false) continue; // страховка
       if (typeof b["Рабочие места"] !== "number") continue;
 
@@ -249,7 +249,7 @@ function upsertLaborMarketEntry(data, provinceName, population, workforce, deman
   if (occupancyShareNullable !== null && occupancyShareNullable !== undefined) {
     entry["Доля занятости"] = clamp01(occupancyShareNullable);
   } else {
-    entry["Доля занятости"] = (demand > 0) ? clamp01(workforce / demand) : 1;
+    entry["Доля занятости"] = (demand > 0) ? clamp01(workforce / demand) : 0;
   }
 
   return entry;
@@ -353,8 +353,19 @@ function applyLaborEffectToBuildingsOurOnly(data) {
       var b = row[j];
       if (!b || typeof b !== "object") continue;
       if (!b.Провинция) continue;
-
+      
       if (!ourMap[b.Провинция]) continue;
+      
+      if (b.Активно === false) {
+      b._Рабочие = 0;
+      b._ЭффективностьТруда = 0;
+
+      data.Новости.push(
+        "⏸ Труд: " + (b.Тип || "Здание") + " (" + b.Провинция + ") " +
+        "| Активно=false → рабочих=0"
+      );
+      continue;
+    }
 
       var labor = getLaborMarketByProvince(data, b.Провинция);
       var s = getBuildingStaffingSimple(b, labor);
