@@ -377,18 +377,22 @@ function rebuildLaborMarketOurOnly(data) {
   var totalDeficitRate = totalDemand > 0 ? totalDeficit / totalDemand : 0;
 
   data.Новости.push(
-    "📊 Рынок труда (итог): провинций=" + provinces.length +
-    " | Население=" + totalPop +
-    " | Раб.сила=" + totalWorkforce +
-    " | Спрос=" + totalDemand +
-    " | Занятые=" + employedTotal +
-    " | Безработные=" + unemployedTotal +
-    " | Безработица=" + (Math.round(unempTotalRate * 1000) / 10) + "%" +
-    (totalDeficit > 0
-      ? " | Дефицит=" + totalDeficit +
-        " (" + (Math.round(totalDeficitRate * 1000) / 10) + "%)"
-      : "")
-  );
+  "📊 Трудовые ресурсы государства\n" +
+  "➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n" +
+  "⛰️ Провинций государства: " + provinces.length + "\n" +
+  "👨‍👩‍👦 Общее население: " + totalPop + "\n" +
+  "👷‍♂️ Всего рабочих: " + totalWorkforce + "\n" +
+  "🧑‍🔧 Необходимо рабочих: " + totalDemand + "\n" +
+  "🧑‍🔧 Занятые рабочие: " + employedTotal + "\n" +
+  "🙋 Безработные рабочие: " + unemployedTotal + "\n" +
+  "🙋 Уровень безработицы: " +
+    (Math.round(unempTotalRate * 1000) / 10) + "%" +
+  (totalDeficit > 0
+    ? "\n❗ Дефицит: " + totalDeficit +
+      " (" + (Math.round(totalDeficitRate * 1000) / 10) + "%)"
+    : "")
+);
+
 
   return { ok: true, stateId: stateId, ourCount: provinces.length };
 }
