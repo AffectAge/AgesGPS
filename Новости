@@ -187,7 +187,7 @@ function flushNotifications(data) {
     subs.forEach(sub => {
       // Подзаголовок sub
       if (sub && sub.trim()) {
-        const subHeader = `\n   └─ ${sub}\n`;
+        const subHeader = `\n ↪️${sub}\n`;
         if (currentText.length + subHeader.length > NEWS_CELL_LIMIT) {
           cells.push(buildRichText(currentParts));
           currentText = "";
