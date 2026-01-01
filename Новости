@@ -1,3 +1,13 @@
+/* =========================================================
+   НОВОСТИ (RICHTEXT) + ГРУППИРОВКА ПО CATEGORY → SUB
+   + РЫНОК ТРУДА (БАЗОВЫЙ) — ВЕРСИЯ ПОД ЭТОТ ДВИЖОК НОВОСТЕЙ
+   Google Apps Script (V8)
+   ========================================================= */
+
+/* =======================
+   НАСТРОЙКИ НОВОСТЕЙ
+   ======================= */
+
 const NEWS_CELL_LIMIT = 45000;
 
 const CATEGORY_ICONS = {
@@ -10,9 +20,28 @@ const CATEGORY_ICONS = {
   "Общее": "\nℹ️"
 };
 
+/* =======================
+   НОВОСТИ: API
+   ======================= */
+
+function ensureNews(data) {
+  if (!data || typeof data !== "object") throw new Error("data is required");
+  if (!Array.isArray(data.Новости)) data.Новости = [];
+}
+
 function initNotifications(data) {
+  ensureNews(data);
   data.Новости = [];
 }
+
+function pushNotice(data, n) {
+  ensureNews(data);
+  data.Новости.push(n);
+}
+
+/* =======================
+   НОВОСТИ: НОРМАЛИЗАЦИЯ/ДЕДУП/СОРТ
+   ======================= */
 
 function normalizeNotification(n) {
   if (typeof n === "string") {
@@ -27,8 +56,8 @@ function normalizeNotification(n) {
   return {
     category: n.category || "Общее",
     sub: n.sub || "",
-    priority: n.priority ?? 100,
-    parts: n.parts || [{ text: n.text || "" }]
+    priority: (n.priority ?? 100),
+    parts: Array.isArray(n.parts) ? n.parts : [{ text: (n.text || "") }]
   };
 }
 
@@ -50,7 +79,6 @@ function collapseNotifications(list) {
 
   list.forEach(n => {
     const key = notificationKey(n);
-
     if (!map.has(key)) {
       map.set(key, { ...n, count: 1 });
     } else {
@@ -63,21 +91,28 @@ function collapseNotifications(list) {
   return Array.from(map.values());
 }
 
-function groupByCategory(list) {
-  const groups = {};
-  list.forEach(n => {
-    if (!groups[n.category]) groups[n.category] = [];
-    groups[n.category].push(n);
-  });
-  return groups;
-}
-
 function sortCategory(list) {
   return list.sort((a, b) =>
     a.priority - b.priority ||
     (b.count || 1) - (a.count || 1)
   );
 }
+
+function groupByCategoryAndSub(list) {
+  const groups = {};
+  list.forEach(n => {
+    const cat = n.category || "Общее";
+    const sub = n.sub || "";
+    if (!groups[cat]) groups[cat] = {};
+    if (!groups[cat][sub]) groups[cat][sub] = [];
+    groups[cat][sub].push(n);
+  });
+  return groups;
+}
+
+/* =======================
+   RICHTEXT BUILDER
+   ======================= */
 
 function buildRichText(parts) {
   const builder = SpreadsheetApp.newRichTextValue();
@@ -86,13 +121,11 @@ function buildRichText(parts) {
 
   parts.forEach(p => {
     const start = text.length;
-    text += p.text || "";
+    text += (p.text || "");
     const end = text.length;
-
     if (start === end) return;
 
     let style = SpreadsheetApp.newTextStyle();
-
     if (p.bold) style = style.setBold(true);
     if (p.italic) style = style.setItalic(true);
     if (p.color) style = style.setForegroundColor(p.color);
@@ -102,18 +135,22 @@ function buildRichText(parts) {
 
   builder.setText(text);
   styles.forEach(s => builder.setTextStyle(s.start, s.end, s.style));
-
   return builder.build();
 }
 
-function renderNotification(n) {
-  const icon = CATEGORY_ICONS[n.category] || "📌";
-  const mult = n.count > 1 ? `📰x${n.count} ` : "";
+function cleanIcon(icon) {
+  return String(icon || "📌").replace(/\n/g, "");
+}
 
-  const header = `${mult}${icon} `;
-  const parts = [{ text: header }, ...n.parts];
+function renderNotificationParts(n) {
+  const icon = cleanIcon(CATEGORY_ICONS[n.category]) || "📌";
+  const mult = (n.count || 1) > 1 ? `📰x${n.count} ` : "";
 
-  return buildRichText(parts);
+  return [
+    { text: `${mult}${icon} `, bold: true },
+    ...n.parts,
+    { text: "\n" }
+  ];
 }
 
 function flushNotifications(data) {
@@ -121,43 +158,62 @@ function flushNotifications(data) {
 
   const normalized = data.Новости.map(normalizeNotification);
   const collapsed = collapseNotifications(normalized);
-  const grouped = groupByCategory(collapsed);
+  const grouped = groupByCategoryAndSub(collapsed);
 
   const cells = [];
   let currentText = "";
   let currentParts = [];
 
   Object.keys(grouped).sort().forEach(category => {
-    const icon = CATEGORY_ICONS[category] || "📌";
-    const header = `\n${icon} ${category}\n`;
+    const icon = cleanIcon(CATEGORY_ICONS[category]) || "📌";
 
-    if (currentText.length + header.length > NEWS_CELL_LIMIT) {
+    // Заголовок категории
+    const catHeader = `\n${icon} ${category}\n`;
+    if (currentText.length + catHeader.length > NEWS_CELL_LIMIT) {
       cells.push(buildRichText(currentParts));
       currentText = "";
       currentParts = [];
     }
+    currentText += catHeader;
+    currentParts.push({ text: catHeader, bold: true });
 
-    currentText += header;
-    currentParts.push({ text: header, bold: true });
+    const subsObj = grouped[category];
+    const subs = Object.keys(subsObj).sort((a, b) => {
+      if (!a && b) return -1;
+      if (a && !b) return 1;
+      return a.localeCompare(b);
+    });
 
-    sortCategory(grouped[category]).forEach(n => {
-      const rendered = renderNotification(n);
-      const text = rendered.getText() + "\n";
-
-      if (currentText.length + text.length > NEWS_CELL_LIMIT) {
-        cells.push(buildRichText(currentParts));
-        currentText = text;
-        currentParts = [{ text }];
-      } else {
-        currentText += text;
-        currentParts.push({ text });
+    subs.forEach(sub => {
+      // Подзаголовок sub
+      if (sub && sub.trim()) {
+        const subHeader = `\n   └─ ${sub}\n`;
+        if (currentText.length + subHeader.length > NEWS_CELL_LIMIT) {
+          cells.push(buildRichText(currentParts));
+          currentText = "";
+          currentParts = [];
+        }
+        currentText += subHeader;
+        currentParts.push({ text: subHeader, bold: true, italic: true });
       }
+
+      // Записи
+      sortCategory(subsObj[sub]).forEach(n => {
+        const parts = renderNotificationParts(n);
+        const text = parts.map(p => p.text || "").join("");
+
+        if (currentText.length + text.length > NEWS_CELL_LIMIT) {
+          cells.push(buildRichText(currentParts));
+          currentText = text;
+          currentParts = parts.slice();
+        } else {
+          currentText += text;
+          currentParts.push(...parts);
+        }
+      });
     });
   });
 
-  if (currentText.trim()) {
-    cells.push(buildRichText(currentParts));
-  }
-
+  if (currentText.trim()) cells.push(buildRichText(currentParts));
   data.Новости = cells;
 }
