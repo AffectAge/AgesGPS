@@ -1,17 +1,7 @@
 /* =========================================================
    РЫНОК ТРУДА (БАЗОВЫЙ) — ГОТОВАЯ ВЕРСИЯ (ТВОЙ ФОРМАТ "ЯЧЕЙКИ")
    Google Apps Script
-
-   ✅ Чтение параметров государства из data["Данные государства"] (1D/2D)
-   ✅ Рынок труда только для наших провинций
-   ✅ Спрос считается по активным зданиям (Активно === true)
-   ✅ Рабочие места:
-      - если в здании задано "Рабочие места" (число) — берём его
-      - иначе считаем из шаблона по уровню: base*(1+k*(level-1))
-        tpl.Труд.База, tpl.Труд.ПриростЗаУровень (по умолчанию k=0.8)
-   ✅ Здания с Активно=false не занимают рабочую силу (служебные поля = 0)
-   ✅ Безработица (по рабочей силе) + Дефицит рабочей силы (по спросу)
-   ✅ Пишем новости в data.Новости
+)
    ========================================================= */
 
 
@@ -121,16 +111,29 @@ function getStateIdSafe(data) {
 
   var v = getStateParamFromCell(data, "Идентификатор государства");
   if (v === undefined || v === null || String(v).trim() === "") {
-    data.Новости.push(
-`⛔ Рынок труда: ошибка данных государства
+    pushNotice(data, {
+      category: "Рынок труда",
+      sub: "Ошибка",
+      priority: 999,
+      parts: [
+        { text: "Ошибка данных государства\n", bold: true, color: "#E36A6A" },
+        { text: "┌────────────────────────────────────────────────────────┐\n", color: "#E36A6A" },
 
-Причина:
-— не найден параметр "Идентификатор государства"
-— источник: data["Данные государства"] (ячейка JSON)
+        { text: "┃", bold: true, color: "#E36A6A" },
+        { text: " ➔ Причина: ", bold: true, color: "#CFC7BA" },
+        { text: "не найден параметр \"Идентификатор государства\"\n", bold: true, color: "#E6E6FA" },
 
-Что сделать:
-— добавь {"Идентификатор государства": <id>} в "Данные государства"`
-    );
+        { text: "┃", bold: true, color: "#E36A6A" },
+        { text: " ➔ Источник: ", bold: true, color: "#CFC7BA" },
+        { text: "data[\"Данные государства\"] (ячейка JSON)\n", bold: true, color: "#E6E6FA" },
+
+        { text: "┃", bold: true, color: "#E36A6A" },
+        { text: " ➔ Что сделать: ", bold: true, color: "#CFC7BA" },
+        { text: "добавь {\"Идентификатор государства\": <id>} в \"Данные государства\"\n", bold: true, color: "#E6E6FA" },
+
+        { text: "└────────────────────────────────────────────────────────┘\n", color: "#E36A6A" }
+      ]
+    });
     return null;
   }
 
@@ -142,19 +145,85 @@ function getWorkforceCoefficientSafe(data) {
 
   var v = getStateParamFromCell(data, "Коэффициент рабочей силы");
   if (v === undefined || v === null || v === "") {
-    data.Новости.push("⚠️ Рынок труда: не найден 'Коэффициент рабочей силы' в data['Данные государства']. Принято 0.");
+    pushNotice(data, {
+      category: "Рынок труда",
+      sub: "Предупреждение",
+      priority: 400,
+      parts: [
+        { text: "Параметр не найден\n", bold: true, color: "#FF8C00" },
+        { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Параметр: ", bold: true, color: "#CFC7BA" },
+        { text: "Коэффициент рабочей силы\n", bold: true, color: "#E6E6FA" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Источник: ", bold: true, color: "#CFC7BA" },
+        { text: "data[\"Данные государства\"]\n", bold: true, color: "#E6E6FA" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Принято: ", bold: true, color: "#CFC7BA" },
+        { text: "0\n", bold: true, color: "#E36A6A" },
+
+        { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+      ]
+    });
     return 0;
   }
 
   var num = Number(v);
   if (isNaN(num)) {
-    data.Новости.push("⚠️ Рынок труда: 'Коэффициент рабочей силы' не число (" + String(v) + "). Принято 0.");
+    pushNotice(data, {
+      category: "Рынок труда",
+      sub: "Предупреждение",
+      priority: 400,
+      parts: [
+        { text: "Некорректный параметр\n", bold: true, color: "#FF8C00" },
+        { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Параметр: ", bold: true, color: "#CFC7BA" },
+        { text: "Коэффициент рабочей силы\n", bold: true, color: "#E6E6FA" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Значение: ", bold: true, color: "#CFC7BA" },
+        { text: String(v) + "\n", bold: true, color: "#E36A6A" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Принято: ", bold: true, color: "#CFC7BA" },
+        { text: "0\n", bold: true, color: "#E36A6A" },
+
+        { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+      ]
+    });
     return 0;
   }
 
   var clamped = clamp01(num);
   if (clamped !== num) {
-    data.Новости.push("⚠️ Рынок труда: 'Коэффициент рабочей силы' вне [0..1] (" + num + "). Обрезано до " + clamped + ".");
+    pushNotice(data, {
+      category: "Рынок труда",
+      sub: "Предупреждение",
+      priority: 300,
+      parts: [
+        { text: "Параметр обрезан до диапазона\n", bold: true, color: "#FF8C00" },
+        { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Параметр: ", bold: true, color: "#CFC7BA" },
+        { text: "Коэффициент рабочей силы\n", bold: true, color: "#E6E6FA" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Было: ", bold: true, color: "#CFC7BA" },
+        { text: String(num) + "\n", bold: true, color: "#E36A6A" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Стало: ", bold: true, color: "#CFC7BA" },
+        { text: String(clamped) + "\n", bold: true, color: "#E6E6FA" },
+
+        { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+      ]
+    });
   }
 
   return clamped;
@@ -323,7 +392,7 @@ function upsertLaborMarketEntry(data, provinceName, population, workforce, deman
 
 
 /* =======================
-   ПЕРЕСБОРКА РЫНКА ТРУДА: только наши + новости
+   ПЕРЕСБОРКА РЫНКА ТРУДА: только наши + новости (новый стиль)
    ======================= */
 
 function rebuildLaborMarketOurOnly(data) {
@@ -347,7 +416,25 @@ function rebuildLaborMarketOurOnly(data) {
   var totalDemand = 0;
 
   if (provinces.length === 0) {
-    data.Новости.push("⚠️ Рынок труда: у государства " + stateId + " нет провинций (или не заполнен 'Владелец').");
+    pushNotice(data, {
+      category: "Рынок труда",
+      sub: "Предупреждение",
+      priority: 500,
+      parts: [
+        { text: "Провинции не найдены\n", bold: true, color: "#FF8C00" },
+        { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Государство: ", bold: true, color: "#CFC7BA" },
+        { text: String(stateId) + "\n", bold: true, color: "#E6E6FA" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Причина: ", bold: true, color: "#CFC7BA" },
+        { text: "нет провинций (или не заполнен \"Владелец\")\n", bold: true, color: "#E36A6A" },
+
+        { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+      ]
+    });
     return { ok: true, stateId: stateId, ourCount: 0 };
   }
 
@@ -364,21 +451,69 @@ function rebuildLaborMarketOurOnly(data) {
 
     var entry = upsertLaborMarketEntry(data, provName, popTotal, workforce, demand, null);
 
-    data.Новости.push(
-      "📊 Трудовые ресурсы провинции " + "➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️" + "\n⛰️ Провинция: " + provName +
-      "\n👨‍👩‍👦 Общее население: " + entry["Население"] +
-      "\n👷‍♂️ Всего рабочих: " + entry["Рабочая сила"] +
-      "\n🧑‍🔧 Необходимо рабочих: " + entry["Спрос"] +
-      "\n🧑‍🔧 Занято рабочих: " + entry["Занятые"] +
-      "\n🙋 Безработные рабочие: " + entry["Безработные"] +
-      "\n🙋 Уровень безработицы: " + (Math.round(entry["Безработица"] * 1000) / 10) + "%" +
-      (entry["Дефицит"] > 0
-        ? "\n🙅 Дефицит: " + entry["Дефицит"] +
-          " (" + (Math.round(entry["Дефицит %"] * 1000) / 10) + "%)"
-        : "")
-    );
+    // ===== НОВОСТЬ ПО ПРОВИНЦИИ (рамка) =====
+    var provParts = [
+      { text: "Трудовые ресурсы провинции\n", bold: true, color: "#FF8C00" },
+      { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+      { text: String(provName) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Общее население: ", bold: true, color: "#CFC7BA" },
+      { text: String(entry["Население"]) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Всего рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(entry["Рабочая сила"]) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Необходимо рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(entry["Спрос"]) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Занято рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(entry["Занятые"]) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Безработные: ", bold: true, color: "#CFC7BA" },
+      { text: String(entry["Безработные"]) + "\n", bold: true, color: "#E36A6A" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Уровень безработицы: ", bold: true, color: "#CFC7BA" },
+      { text: String(Math.round(entry["Безработица"] * 1000) / 10) + "%\n", bold: true, color: "#E36A6A" }
+    ];
+
+    if (entry["Дефицит"] > 0) {
+      provParts.push(
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Дефицит рабочих: ", bold: true, color: "#CFC7BA" },
+        { text: String(entry["Дефицит"]) + "\n", bold: true, color: "#E36A6A" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Уровень дефицита: ", bold: true, color: "#CFC7BA" },
+        { text: String(Math.round(entry["Дефицит %"] * 1000) / 10) + "%\n", bold: true, color: "#E36A6A" }
+      );
+    } else {
+      provParts.push(
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Дефицит рабочих: ", bold: true, color: "#CFC7BA" },
+        { text: "0\n", bold: true, color: "#E6E6FA" }
+      );
+    }
+
+    provParts.push({ text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" });
+
+    pushNotice(data, {
+      category: "Рынок труда",
+      sub: "Провинция",
+      priority: 80,
+      parts: provParts
+    });
   }
 
+  // ===== ИТОГИ (один раз) =====
   var employedTotal = Math.min(totalWorkforce, totalDemand);
   var unemployedTotal = Math.max(0, totalWorkforce - employedTotal);
   var unempTotalRate = totalWorkforce > 0 ? unemployedTotal / totalWorkforce : 0;
@@ -386,23 +521,53 @@ function rebuildLaborMarketOurOnly(data) {
   var totalDeficit = Math.max(0, totalDemand - totalWorkforce);
   var totalDeficitRate = totalDemand > 0 ? totalDeficit / totalDemand : 0;
 
-  data.Новости.push(
-  "📊 Трудовые ресурсы государства\n" +
-  "➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️" +
-  "\n⛰️ Провинций государства: " + provinces.length + "\n" +
-  "👨‍👩‍👦 Общее население: " + totalPop + "\n" +
-  "👷‍♂️ Всего рабочих: " + totalWorkforce + "\n" +
-  "🧑‍🔧 Необходимо рабочих: " + totalDemand + "\n" +
-  "🧑‍🔧 Занятые рабочие: " + employedTotal + "\n" +
-  "🙋 Безработные рабочие: " + unemployedTotal + "\n" +
-  "🙋 Уровень безработицы: " +
-    (Math.round(unempTotalRate * 1000) / 10) + "%" +
-  (totalDeficit > 0
-    ? "\n❗ Дефицит: " + totalDeficit +
-      " (" + (Math.round(totalDeficitRate * 1000) / 10) + "%)"
-    : "")
-);
+  pushNotice(data, {
+    category: "Рынок труда",
+    sub: "Статистика",
+    priority: 100,
+    parts: [
+      { text: "Общая статистика населения государства\n", bold: true, color: "#FF8C00" },
+      { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Количество провинций: ", bold: true, color: "#CFC7BA" },
+      { text: String(provinces.length) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Население государства: ", bold: true, color: "#CFC7BA" },
+      { text: String(totalPop) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Общее количество рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(totalWorkforce) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Всего занятых рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(employedTotal) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Всего необходимо рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(totalDemand) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Всего свободных рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(unemployedTotal) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Уровень безработицы: ", bold: true, color: "#CFC7BA" },
+      { text: String(Math.round(unempTotalRate * 1000) / 10) + "%\n", bold: true, color: "#E36A6A" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Дефицит рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(totalDeficit) + "\n", bold: true, color: "#E36A6A" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Уровень дефицита рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(Math.round(totalDeficitRate * 1000) / 10) + "%\n", bold: true, color: "#E36A6A" },
+
+      { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+    ]
+  });
 
   return { ok: true, stateId: stateId, ourCount: provinces.length };
 }
@@ -435,7 +600,25 @@ function applyLaborEffectToBuildingsOurOnly(data) {
   var ourMap = buildOurProvincesMap(data, stateId);
 
   if (!Array.isArray(data.Постройки)) {
-    data.Новости.push("⚠️ Рынок труда: data.Постройки отсутствует или не массив — здания не обработаны.");
+    pushNotice(data, {
+      category: "Рынок труда",
+      sub: "Предупреждение",
+      priority: 600,
+      parts: [
+        { text: "Постройки отсутствуют\n", bold: true, color: "#FF8C00" },
+        { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Причина: ", bold: true, color: "#CFC7BA" },
+        { text: "data.Постройки отсутствует или не массив\n", bold: true, color: "#E36A6A" },
+
+        { text: "┃", bold: true, color: "#FF8C00" },
+        { text: " ➔ Эффект: ", bold: true, color: "#CFC7BA" },
+        { text: "здания не обработаны\n", bold: true, color: "#E6E6FA" },
+
+        { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+      ]
+    });
     return;
   }
 
@@ -459,19 +642,34 @@ function applyLaborEffectToBuildingsOurOnly(data) {
 
         affected++;
 
-        data.Новости.push(
-`⏸ Рынок труда: здание остановлено вручную
+        pushNotice(data, {
+          category: "Рынок труда",
+          sub: "Здание",
+          priority: 50,
+          parts: [
+            { text: "Здание остановлено вручную\n", bold: true, color: "#FF8C00" },
+            { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
-🏭 Здание: ${b.Тип || "Здание"}
-⛰️ Провинция: ${b.Провинция}
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " Здание: ", bold: true, color: "#CFC7BA" },
+            { text: String(b.Тип || "Здание") + "\n", bold: true, color: "#E6E6FA" },
 
-Причина:
-— Активно = false
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+            { text: String(b.Провинция) + "\n", bold: true, color: "#E6E6FA" },
 
-Эффект:
-— рабочие = 0
-— эффективность = 0%`
-);
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " ➔ Причина: ", bold: true, color: "#CFC7BA" },
+            { text: "Активно = false\n", bold: true, color: "#E36A6A" },
+
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " ➔ Эффект: ", bold: true, color: "#CFC7BA" },
+            { text: "рабочие = 0, эффективность = 0%\n", bold: true, color: "#E6E6FA" },
+
+            { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+          ]
+        });
+
         continue;
       }
 
@@ -485,20 +683,34 @@ function applyLaborEffectToBuildingsOurOnly(data) {
 
         affected++;
 
-        data.Новости.push(
-`⚠️ Труд: рабочие места не определены
+        pushNotice(data, {
+          category: "Рынок труда",
+          sub: "Здание",
+          priority: 200,
+          parts: [
+            { text: "Рабочие места не определены\n", bold: true, color: "#FF8C00" },
+            { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
-🏭 Здание: ${b.Тип || "Здание"}
-⛰️ Провинция: ${b.Провинция}
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " Здание: ", bold: true, color: "#CFC7BA" },
+            { text: String(b.Тип || "Здание") + "\n", bold: true, color: "#E6E6FA" },
 
-Причина:
-— нет "Рабочие места"
-— и/или отсутствует tpl.Труд в шаблоне
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+            { text: String(b.Провинция) + "\n", bold: true, color: "#E6E6FA" },
 
-Эффект:
-— рабочие места = 0
-— пропуск расчёта`
-);
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " ➔ Причина: ", bold: true, color: "#CFC7BA" },
+            { text: "нет \"Рабочие места\" и/или отсутствует tpl.Труд\n", bold: true, color: "#E36A6A" },
+
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " ➔ Эффект: ", bold: true, color: "#CFC7BA" },
+            { text: "рабочие места = 0, расчёт пропущен\n", bold: true, color: "#E6E6FA" },
+
+            { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+          ]
+        });
+
         continue;
       }
 
@@ -520,31 +732,107 @@ function applyLaborEffectToBuildingsOurOnly(data) {
         if (b.Активно !== false) turnedOff++;
         b.Активно = false;
 
-        data.Новости.push(
-`⛔ Рынок труда: здание отключено (нет рабочих)
+        pushNotice(data, {
+          category: "Рынок труда",
+          sub: "Здание",
+          priority: 900,
+          parts: [
+            { text: "Здание отключено (нет рабочих)\n", bold: true, color: "#E36A6A" },
+            { text: "┌────────────────────────────────────────────────────────┐\n", color: "#E36A6A" },
 
-🏭 Здание: ${b.Тип || "Здание"}
-⛰️ Провинция: ${b.Провинция}
+            { text: "┃", bold: true, color: "#E36A6A" },
+            { text: " Здание: ", bold: true, color: "#CFC7BA" },
+            { text: String(b.Тип || "Здание") + "\n", bold: true, color: "#E6E6FA" },
 
-Необходимо рабочих: ${slots}
-Доступно рабочих: 0`
-);
+            { text: "┃", bold: true, color: "#E36A6A" },
+            { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+            { text: String(b.Провинция) + "\n", bold: true, color: "#E6E6FA" },
+
+            { text: "┃", bold: true, color: "#E36A6A" },
+            { text: " ➔ Необходимо рабочих: ", bold: true, color: "#CFC7BA" },
+            { text: String(slots) + "\n", bold: true, color: "#E6E6FA" },
+
+            { text: "┃", bold: true, color: "#E36A6A" },
+            { text: " ➔ Доступно рабочих: ", bold: true, color: "#CFC7BA" },
+            { text: "0\n", bold: true, color: "#E36A6A" },
+
+            { text: "└────────────────────────────────────────────────────────┘\n", color: "#E36A6A" }
+          ]
+        });
       } else {
-        data.Новости.push(
-          "🏭 Постройка " + b.Тип + " в провинции " + b.Провинция +
-          "\n🧑‍🔧 Необходимо рабочих: " + slots +
-          "\n🧑‍🔧 Нанято рабочих: " + s.Рабочие +
-          "\n👷‍♂️ Обеспечено от необходимых: " + (Math.round(s.Эффективность * 1000) / 10) + "%" +
-          (missingForBuilding > 0
-            ? "\n🙅 Нехватка рабочих: " + missingForBuilding +
-              " (" + (Math.round(missingRateForBuilding * 1000) / 10) + "%)"
-            : "")
-        );
+        var effPct = (Math.round(s.Эффективность * 1000) / 10);
+
+        var bParts = [
+          { text: "Обеспечение здания рабочими\n", bold: true, color: "#FF8C00" },
+          { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
+
+          { text: "┃", bold: true, color: "#FF8C00" },
+          { text: " Здание: ", bold: true, color: "#CFC7BA" },
+          { text: String(b.Тип || "Здание") + "\n", bold: true, color: "#E6E6FA" },
+
+          { text: "┃", bold: true, color: "#FF8C00" },
+          { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+          { text: String(b.Провинция) + "\n", bold: true, color: "#E6E6FA" },
+
+          { text: "┃", bold: true, color: "#FF8C00" },
+          { text: " ➔ Необходимо рабочих: ", bold: true, color: "#CFC7BA" },
+          { text: String(slots) + "\n", bold: true, color: "#E6E6FA" },
+
+          { text: "┃", bold: true, color: "#FF8C00" },
+          { text: " ➔ Нанято рабочих: ", bold: true, color: "#CFC7BA" },
+          { text: String(s.Рабочие) + "\n", bold: true, color: "#E6E6FA" },
+
+          { text: "┃", bold: true, color: "#FF8C00" },
+          { text: " ➔ Обеспечено: ", bold: true, color: "#CFC7BA" },
+          { text: String(effPct) + "%\n", bold: true, color: "#E6E6FA" }
+        ];
+
+        if (missingForBuilding > 0) {
+          bParts.push(
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " ➔ Нехватка рабочих: ", bold: true, color: "#CFC7BA" },
+            { text: String(missingForBuilding), bold: true, color: "#E36A6A" },
+            { text: " (" + (Math.round(missingRateForBuilding * 1000) / 10) + "%)\n", bold: true, color: "#E36A6A" }
+          );
+        } else {
+          bParts.push(
+            { text: "┃", bold: true, color: "#FF8C00" },
+            { text: " ➔ Нехватка рабочих: ", bold: true, color: "#CFC7BA" },
+            { text: "0\n", bold: true, color: "#E6E6FA" }
+          );
+        }
+
+        bParts.push({ text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" });
+
+        pushNotice(data, {
+          category: "Рынок труда",
+          sub: "Здание",
+          priority: 70,
+          parts: bParts
+        });
       }
     }
   }
 
-  data.Новости.push("🏗 Рынок труда обработал зданий: " + affected + "\n Из-за отсутствия свободных рабочих отключено:" + turnedOff + " зданий");
+  pushNotice(data, {
+    category: "Рынок труда",
+    sub: "Итог",
+    priority: 90,
+    parts: [
+      { text: "Итоги обработки построек\n", bold: true, color: "#FF8C00" },
+      { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Обработано зданий: ", bold: true, color: "#CFC7BA" },
+      { text: String(affected) + "\n", bold: true, color: "#E6E6FA" },
+
+      { text: "┃", bold: true, color: "#FF8C00" },
+      { text: " ➔ Отключено из-за 0 рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: String(turnedOff) + "\n", bold: true, color: "#E36A6A" },
+
+      { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
+    ]
+  });
 }
 
 
@@ -559,7 +847,25 @@ function processTurnLaborOurOnly(data) {
   if (res && res.ok) {
     applyLaborEffectToBuildingsOurOnly(data);
   } else {
-    data.Новости.push("⛔ Рынок труда: пропуск обработки зданий из-за ошибок чтения данных государства.");
+    pushNotice(data, {
+      category: "Рынок труда",
+      sub: "Ошибка",
+      priority: 999,
+      parts: [
+        { text: "Обработка пропущена\n", bold: true, color: "#E36A6A" },
+        { text: "┌────────────────────────────────────────────────────────┐\n", color: "#E36A6A" },
+
+        { text: "┃", bold: true, color: "#E36A6A" },
+        { text: " ➔ Причина: ", bold: true, color: "#CFC7BA" },
+        { text: "ошибка чтения данных государства\n", bold: true, color: "#E36A6A" },
+
+        { text: "┃", bold: true, color: "#E36A6A" },
+        { text: " ➔ Эффект: ", bold: true, color: "#CFC7BA" },
+        { text: "обработка зданий не выполнена\n", bold: true, color: "#E6E6FA" },
+
+        { text: "└────────────────────────────────────────────────────────┘\n", color: "#E36A6A" }
+      ]
+    });
   }
 
   return data;
