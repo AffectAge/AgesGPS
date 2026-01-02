@@ -6,6 +6,62 @@
 /* =======================
    ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
    ======================= */
+   
+function pushBuildingNotice(data, b, statusOk) {
+  var C_BORDER = "#FF8C00";
+  var C_LABEL  = "#CFC7BA";
+  var C_VALUE  = "#E6E6FA";
+  var C_OK     = "#6EE06E";
+  var C_BAD    = "#E36A6A";
+  var C_TEXT   = "#B9B1A4";
+
+  var borderTop = "┌────────────────────────────────────────────────────────┐\n";
+  var borderBot = "└────────────────────────────────────────────────────────┘\n";
+
+  var parts = [];
+
+  // Title
+  parts.push({ text: (b.Тип + " в " + b.Провинция + "\n"), bold: true, color: C_BORDER });
+
+  // Box top
+  parts.push({ text: borderTop, color: C_BORDER });
+
+  // Строка: статус
+  parts.push({ text: "┃", bold: true, color: C_BORDER });
+  parts.push({ text: " ➔ Статус: ", bold: true, color: C_LABEL });
+  parts.push({ text: (statusOk ? "работает" : "не работает") + "\n", bold: true, color: (statusOk ? C_OK : C_BAD) });
+
+  // Строка: владелец/наша ли провинция
+  parts.push({ text: "┃", bold: true, color: C_BORDER });
+  parts.push({ text: " ➔ Провинция наша: ", bold: true, color: C_LABEL });
+  parts.push({ text: String(!!b._isOurProvince) + "\n", bold: true, color: C_VALUE });
+
+  // Причины (если есть)
+  if (!statusOk && b._reasons && b._reasons.length) {
+    parts.push({ text: "┃", bold: true, color: C_BORDER });
+    parts.push({ text: " ➔ Причины:\n", bold: true, color: C_LABEL });
+
+    b._reasons.forEach(function (r) {
+      // r у тебя часто начинается с '\n' — нормализуем, чтобы рамка выглядела аккуратно
+      var rr = String(r || "").replace(/^\n+/, "").trimEnd();
+      if (!rr) return;
+
+      // Можно оставить как один блок текста, либо построчно. Здесь — одним блоком.
+      parts.push({ text: "┃", bold: true, color: C_BORDER });
+      parts.push({ text: " " + rr.replace(/\n/g, "\n┃ ") + "\n", color: C_TEXT });
+    });
+  }
+
+  // Box bottom
+  parts.push({ text: borderBot, color: C_BORDER });
+
+  pushNotice(data, {
+    category: "Постройки",
+    sub: "Проверка критериев",
+    priority: 100,
+    parts: parts
+  });
+}
 
 function indent(level) {
   return '  '.repeat(level);
@@ -395,8 +451,7 @@ function checkFactionCriteria(stateCtx, criteria) {
       var exp = explainRuleTable(criteria[key], value);
       reasons.push(
         '\n' +
-        '🏴 Фракции государства\n' +
-        '➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️➖️\n' +
+        ' ➔ Фракции государства: \n' +
         exp.lines.join('\n') + '\n'
       );
     }
@@ -825,32 +880,17 @@ if (b._isOurProvince && tpl.КритерииФракцийГосударства
     }
   }
 
-  /* === ИТОГ === */
+/* === ИТОГ === */
 buildings.forEach(function (b) {
   var o = b._originalRef;
 
-  // Начало рамки для постройки
-  var header = '🧱🧱🧱🧱🧱🧱🧱 Постройка 🧱🧱🧱🧱🧱🧱🧱\n' +
-               '' + b.Тип + ' в ' + b.Провинция + '' +
-               '';
+  var statusOk = !!b._isOurProvince && !!b._potential && !b._blockedByLimit;
 
-  if (!b._isOurProvince || !b._potential || b._blockedByLimit) {
-    o.Активно = false;
-    if (b._reasons.length) {
-      data.Новости.push(
-        header + '\n' +
-        b._reasons.join('\n') + '\n' +
-        '\n'
-      );
-    }
-  } else {
-    o.Активно = true;
-    data.Новости.push(
-      header + '' +
-      ' работает' +
-      '\n'
-    );
-  }
+  // выставляем Активно в оригинальной постройке
+  o.Активно = statusOk;
+
+  // вместо header + data.Новости.push(...) — нормальный pushNotice
+  pushBuildingNotice(data, b, statusOk);
 });
 
   provinces.forEach(function (p) { delete p._isOur; });
