@@ -457,7 +457,7 @@ function rebuildLaborMarketOurOnly(data) {
       { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
       { text: "┃", bold: true, color: "#FF8C00" },
-      { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+      { text: " ➔ Провинция: ", bold: true, color: "#CFC7BA" },
       { text: String(provName) + "\n", bold: true, color: "#E6E6FA" },
 
       { text: "┃", bold: true, color: "#FF8C00" },
@@ -526,7 +526,7 @@ function rebuildLaborMarketOurOnly(data) {
     sub: "Статистика",
     priority: 100,
     parts: [
-      { text: "Общая статистика населения государства\n", bold: true, color: "#FF8C00" },
+      { text: "Общая статистика трудовых ресурсов государства\n", bold: true, color: "#FF8C00" },
       { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
       { text: "┃", bold: true, color: "#FF8C00" },
@@ -647,20 +647,20 @@ function applyLaborEffectToBuildingsOurOnly(data) {
           sub: "Здание",
           priority: 50,
           parts: [
-            { text: "Здание остановлено вручную\n", bold: true, color: "#FF8C00" },
+            { text: "Здание уже остановлено\n", bold: true, color: "#FF8C00" },
             { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
             { text: "┃", bold: true, color: "#FF8C00" },
-            { text: " Здание: ", bold: true, color: "#CFC7BA" },
+            { text: " ➔ Здание: ", bold: true, color: "#CFC7BA" },
             { text: String(b.Тип || "Здание") + "\n", bold: true, color: "#E6E6FA" },
 
             { text: "┃", bold: true, color: "#FF8C00" },
-            { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+            { text: " ➔ Провинция: ", bold: true, color: "#CFC7BA" },
             { text: String(b.Провинция) + "\n", bold: true, color: "#E6E6FA" },
 
             { text: "┃", bold: true, color: "#FF8C00" },
             { text: " ➔ Причина: ", bold: true, color: "#CFC7BA" },
-            { text: "Активно = false\n", bold: true, color: "#E36A6A" },
+            { text: "здание остановлено до обработки рынка труда\n", bold: true, color: "#E36A6A" },
 
             { text: "┃", bold: true, color: "#FF8C00" },
             { text: " ➔ Эффект: ", bold: true, color: "#CFC7BA" },
@@ -692,11 +692,11 @@ function applyLaborEffectToBuildingsOurOnly(data) {
             { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
             { text: "┃", bold: true, color: "#FF8C00" },
-            { text: " Здание: ", bold: true, color: "#CFC7BA" },
+            { text: " ➔ Здание: ", bold: true, color: "#CFC7BA" },
             { text: String(b.Тип || "Здание") + "\n", bold: true, color: "#E6E6FA" },
 
             { text: "┃", bold: true, color: "#FF8C00" },
-            { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+            { text: " ➔ Провинция: ", bold: true, color: "#CFC7BA" },
             { text: String(b.Провинция) + "\n", bold: true, color: "#E6E6FA" },
 
             { text: "┃", bold: true, color: "#FF8C00" },
@@ -741,11 +741,11 @@ function applyLaborEffectToBuildingsOurOnly(data) {
             { text: "┌────────────────────────────────────────────────────────┐\n", color: "#E36A6A" },
 
             { text: "┃", bold: true, color: "#E36A6A" },
-            { text: " Здание: ", bold: true, color: "#CFC7BA" },
+            { text: " ➔ Здание: ", bold: true, color: "#CFC7BA" },
             { text: String(b.Тип || "Здание") + "\n", bold: true, color: "#E6E6FA" },
 
             { text: "┃", bold: true, color: "#E36A6A" },
-            { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+            { text: " ➔ Провинция: ", bold: true, color: "#CFC7BA" },
             { text: String(b.Провинция) + "\n", bold: true, color: "#E6E6FA" },
 
             { text: "┃", bold: true, color: "#E36A6A" },
@@ -767,11 +767,11 @@ function applyLaborEffectToBuildingsOurOnly(data) {
           { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
           { text: "┃", bold: true, color: "#FF8C00" },
-          { text: " Здание: ", bold: true, color: "#CFC7BA" },
+          { text: " ➔ Здание: ", bold: true, color: "#CFC7BA" },
           { text: String(b.Тип || "Здание") + "\n", bold: true, color: "#E6E6FA" },
 
           { text: "┃", bold: true, color: "#FF8C00" },
-          { text: " Провинция: ", bold: true, color: "#CFC7BA" },
+          { text: " ➔ Провинция: ", bold: true, color: "#CFC7BA" },
           { text: String(b.Провинция) + "\n", bold: true, color: "#E6E6FA" },
 
           { text: "┃", bold: true, color: "#FF8C00" },
@@ -819,7 +819,7 @@ function applyLaborEffectToBuildingsOurOnly(data) {
     sub: "Итог",
     priority: 90,
     parts: [
-      { text: "Итоги обработки построек\n", bold: true, color: "#FF8C00" },
+      { text: "Итоги обработки рынка труда\n", bold: true, color: "#FF8C00" },
       { text: "┌────────────────────────────────────────────────────────┐\n", color: "#FF8C00" },
 
       { text: "┃", bold: true, color: "#FF8C00" },
@@ -827,7 +827,7 @@ function applyLaborEffectToBuildingsOurOnly(data) {
       { text: String(affected) + "\n", bold: true, color: "#E6E6FA" },
 
       { text: "┃", bold: true, color: "#FF8C00" },
-      { text: " ➔ Отключено из-за 0 рабочих: ", bold: true, color: "#CFC7BA" },
+      { text: " ➔ Отключено зданий из-за отсутствия рабочих: ", bold: true, color: "#CFC7BA" },
       { text: String(turnedOff) + "\n", bold: true, color: "#E36A6A" },
 
       { text: "└────────────────────────────────────────────────────────┘\n", color: "#FF8C00" }
