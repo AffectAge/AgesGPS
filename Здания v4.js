@@ -592,16 +592,15 @@ function applyLimit(list, limit, reason) {
 function pushBuildingNotice(data, b, statusOk) {
   var parts = [];
 
-  uiTitle(parts, b.Тип + " в " + b.Провинция);
+  uiTitle(parts, "Постройка " + b.Тип + " в " + b.Провинция);
   uiTop(parts);
 
-  uiRow(parts, "Статус", statusOk ? "работает" : "не работает", statusOk ? UI.OK : UI.BAD);
-  uiRow(parts, "Провинция наша", String(!!b._isOurProvince), UI.VALUE);
+  uiRow(parts, "Статус: ", statusOk ? "Активная" : "Неактивная", statusOk ? UI.OK : UI.BAD);
 
   var reasons = b._reasonsParts || [];
   if (!statusOk && reasons.length) {
     uiDivider(parts);
-    uiLine(parts, "Причины:", UI.LABEL, true);
+    uiLine(parts, "┃ Причины:", UI.LABEL, true);
 
     reasons.forEach(function (block) {
       uiBlank(parts);
