@@ -138,12 +138,12 @@ function buildRichText(parts) {
 }
 
 function cleanIcon(icon) {
-  return String(icon || "📌").replace(/\n/g, "");
+  return String(icon || "✎").replace(/\n/g, "");
 }
 
 function renderNotificationParts(n) {
   const icon = cleanIcon(CATEGORY_ICONS[n.category]) || "📌";
-  const mult = (n.count || 1) > 1 ? `📰x${n.count} ` : "";
+  const mult = (n.count || 1) > 1 ? `x${n.count} ` : "";
 
   return [
     { text: `${mult}${icon} `, bold: true },
@@ -164,7 +164,7 @@ function flushNotifications(data) {
   let currentParts = [];
 
   Object.keys(grouped).sort().forEach(category => {
-    const icon = cleanIcon(CATEGORY_ICONS[category]) || "📌";
+    const icon = cleanIcon(CATEGORY_ICONS[category]) || "✎";
 
     // Заголовок категории
     const catHeader = `\n${icon} ${category}\n`;
@@ -186,7 +186,7 @@ function flushNotifications(data) {
     subs.forEach(sub => {
       // Подзаголовок sub
       if (sub && sub.trim()) {
-        const subHeader = `\n 📢 ${sub}\n`;
+        const subHeader = `\n⌬ ${sub}\n`;
         if (currentText.length + subHeader.length > NEWS_CELL_LIMIT) {
           cells.push(buildRichText(currentParts));
           currentText = "";
