@@ -234,76 +234,60 @@ function uiText(parts, t) { parts.push({ text: String(t), color: UI.TEXT }); }
 function uiVal(parts, v)  { parts.push({ text: String(v), bold: true, color: UI.VALUE }); }
 function uiNL(parts)      { parts.push({ text: "\n", color: UI.TEXT }); }
 
-function uiFoundBlockParts(value, pad) {
+function uiFoundBlockParts(value, pad, isOk) {
   var parts = [];
   pad = pad || "";
 
-  // нет значения
+  // префикс теперь зависит от успеха проверки, а не от "есть значение"
+  uiPrefix(parts, pad, !!isOk);
+  uiText(parts, "найдено:");
+  uiNL(parts);
+
   if (value === undefined || value === null) {
-    uiPrefix(parts, pad, false);
-    uiText(parts, "найдено: ");
+    parts.push({ text: "┃", bold: true, color: UI.BORDER });
+    parts.push({ text: pad + "   ", color: UI.TEXT });
+    parts.push({ text: "• ", bold: true, color: UI.DIM });
     uiVal(parts, "Отсутствует");
     uiNL(parts);
     return parts;
   }
 
-  // массив => списком (с лимитом)
-  if (Array.isArray(value)) {
-    var arr = value
-      .map(function (x) { return x === null || x === undefined ? "" : String(x).trim(); })
-      .filter(function (x) { return x !== ""; });
+  if (!Array.isArray(value)) value = [value];
 
-    uiPrefix(parts, pad, arr.length > 0);
-    uiText(parts, "найдено:");
-    uiNL(parts);
+  var arr = value
+    .map(function (x) { return x === null || x === undefined ? "" : String(x).trim(); })
+    .filter(function (x) { return x !== ""; });
 
-    if (!arr.length) {
-      parts.push({ text: "┃", bold: true, color: UI.BORDER });
-      parts.push({ text: pad + "   ", color: UI.TEXT });
-      parts.push({ text: "• ", bold: true, color: UI.DIM });
-      uiVal(parts, "пусто");
-      uiNL(parts);
-      return parts;
-    }
-
-    var maxItems = UI.LIST_MAX_ITEMS || 0;
-    var showAll = (maxItems <= 0) || (arr.length <= maxItems);
-    var toShow = showAll ? arr : arr.slice(0, maxItems);
-    var hidden = arr.length - toShow.length;
-
-    toShow.forEach(function (item) {
-      parts.push({ text: "┃", bold: true, color: UI.BORDER });
-      parts.push({ text: pad + "   ", color: UI.TEXT });
-      parts.push({ text: "• ", bold: true, color: UI.DIM });
-      uiVal(parts, clipText(item, UI.LIST_MAX_CHARS));
-      uiNL(parts);
-    });
-
-    if (!showAll && hidden > 0) {
-      parts.push({ text: "┃", bold: true, color: UI.BORDER });
-      parts.push({ text: pad + "   ", color: UI.TEXT });
-      parts.push({ text: "• ", bold: true, color: UI.DIM });
-      uiVal(parts, "… +" + hidden + " ещё");
-      uiNL(parts);
-    }
-
-    return parts;
-  }
-
-  // объект
-  if (typeof value === "object") {
-    uiPrefix(parts, pad, true);
-    uiText(parts, "найдено: ");
-    uiVal(parts, clipText(JSON.stringify(value), UI.LIST_MAX_CHARS));
+  if (!arr.length) {
+    parts.push({ text: "┃", bold: true, color: UI.BORDER });
+    parts.push({ text: pad + "   ", color: UI.TEXT });
+    parts.push({ text: "• ", bold: true, color: UI.DIM });
+    uiVal(parts, "пусто");
     uiNL(parts);
     return parts;
   }
 
-  // скаляр
-  uiPrefix(parts, pad, true);
-  uiText(parts, "найдено: ");
-  uiVal(parts, clipText(value, UI.LIST_MAX_CHARS));
-  uiNL(parts);
+  var maxItems = UI.LIST_MAX_ITEMS || 0;
+  var showAll = (maxItems <= 0) || (arr.length <= maxItems);
+  var toShow = showAll ? arr : arr.slice(0, maxItems);
+  var hidden = arr.length - toShow.length;
+
+  toShow.forEach(function (item) {
+    parts.push({ text: "┃", bold: true, color: UI.BORDER });
+    parts.push({ text: pad + "   ", color: UI.TEXT });
+    parts.push({ text: "• ", bold: true, color: UI.DIM });
+    uiVal(parts, clipText(item, UI.LIST_MAX_CHARS));
+    uiNL(parts);
+  });
+
+  if (!showAll && hidden > 0) {
+    parts.push({ text: "┃", bold: true, color: UI.BORDER });
+    parts.push({ text: pad + "   ", color: UI.TEXT });
+    parts.push({ text: "• ", bold: true, color: UI.DIM });
+    uiVal(parts, "… +" + hidden + " ещё");
+    uiNL(parts);
+  }
+
   return parts;
 }
 
