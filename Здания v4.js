@@ -2,24 +2,23 @@
    УНИВЕРСАЛЬНЫЙ ДВИЖОК КРИТЕРИЕВ + ЛИМИТЫ С ПРИОРИТЕТОМ
    Google Apps Script (V8)
 
-   ✅ Единый стиль сообщений через pushNotice(... parts ...)
-   ✅ Без эмодзи — только Unicode-символы
-   ✅ Все значения (включая имена ресурсов/законов/культур/числа) — лавандовые
-   ✅ Длинные списки (например законы/культуры) НЕ ломают рамку:
-      выводятся отдельным блоком "найдено:" со списком по строкам
+   ✅ Формат новостей приведён к стилю "ячейки" как в скрипте рынка труда:
+      - Заголовок + рамка ┌ └
+      - Строки "┃ ➔ ..."
+      - Ошибки: красная рамка
+   ⚠️ Логика критериев/лимитов НЕ менялась — только формат сообщений.
 
    Требование: функция pushNotice(data, {category, sub, priority, parts}) должна быть в проекте.
    ========================================================= */
 
 /* =======================
-   UI: стиль карточек
+   UI: стиль "ячейки" (как рынок труда)
    ======================= */
 
 var UI = {
   BORDER: "#FF8C00",
   LABEL:  "#CFC7BA",
-  VALUE:  "#E6E6FA", // ВСЕ значения
-  OK:     "#6EE06E",
+  VALUE:  "#E6E6FA", // значения по умолчанию
   BAD:    "#E36A6A",
   TEXT:   "#B9B1A4",
   DIM:    "#6E675F",
@@ -27,42 +26,59 @@ var UI = {
   TOP: "┌────────────────────────────────────────────────────────┐\n",
   BOT: "└────────────────────────────────────────────────────────┘\n",
 
-// Лимиты вывода
-  LIST_MAX_ITEMS: 10,          // сколько элементов показываем(0 для отключения лимита)
-  LIST_MAX_CHARS: 64         // максимальная длина элемента (обрезка, 0 для отключения лимита)
+  // Лимиты вывода длинных списков
+  LIST_MAX_ITEMS: 10,      // 0 = без лимита
+  LIST_MAX_CHARS: 64       // 0 = без обрезки
 };
+
+function ensureNews(data) {
+  if (!data || typeof data !== "object") return;
+  if (!Array.isArray(data.Новости)) data.Новости = [];
+}
 
 function clipText(s, maxChars) {
   s = String(s == null ? "" : s);
-  maxChars = maxChars || UI.LIST_MAX_CHARS;
+  maxChars = (maxChars === undefined || maxChars === null) ? UI.LIST_MAX_CHARS : maxChars;
   if (maxChars > 0 && s.length > maxChars) return s.slice(0, maxChars - 1) + "…";
   return s;
 }
 
-function uiTitle(parts, text) {
-  parts.push({ text: String(text) + "\n", bold: true, color: UI.BORDER });
-}
-function uiTop(parts) { parts.push({ text: UI.TOP, color: UI.BORDER }); }
-function uiBottom(parts) { parts.push({ text: UI.BOT, color: UI.BORDER }); }
+/* =======================
+   UI helpers (ячейка)
+   ======================= */
 
-function uiRow(parts, label, value, valueColor) {
-  parts.push({ text: "┃", bold: true, color: UI.BORDER });
+function uiTitle(parts, text, borderColor) {
+  parts.push({ text: String(text) + "\n", bold: true, color: borderColor || UI.BORDER });
+}
+
+function uiTop(parts, borderColor) {
+  parts.push({ text: UI.TOP, color: borderColor || UI.BORDER });
+}
+
+function uiBottom(parts, borderColor) {
+  parts.push({ text: UI.BOT, color: borderColor || UI.BORDER });
+}
+
+function uiRow(parts, label, value, valueColor, borderColor) {
+  var bc = borderColor || UI.BORDER;
+  parts.push({ text: "┃", bold: true, color: bc });
   parts.push({ text: " ➔ " + label + ": ", bold: true, color: UI.LABEL });
   parts.push({ text: String(value) + "\n", bold: true, color: valueColor || UI.VALUE });
 }
-function uiLine(parts, text, color, bold) {
-  parts.push({ text: "┃", bold: true, color: UI.BORDER });
+
+function uiLine(parts, text, color, bold, borderColor) {
+  var bc = borderColor || UI.BORDER;
+  parts.push({ text: "┃", bold: true, color: bc });
   parts.push({ text: " " + String(text) + "\n", color: color || UI.TEXT, bold: !!bold });
 }
-function uiDivider(parts) {
-  parts.push({ text: "┃", bold: true, color: UI.BORDER });
-  parts.push({ text: "──────────────────────────────────────────────────────────\n", color: UI.DIM });
-}
-function uiBlank(parts) {
-  parts.push({ text: "┃\n", bold: true, color: UI.BORDER });
+
+function uiBlank(parts, borderColor) {
+  var bc = borderColor || UI.BORDER;
+  parts.push({ text: "┃\n", bold: true, color: bc });
 }
 
 function pushBoxNotice(data, opts) {
+  ensureNews(data);
   pushNotice(data, {
     category: opts.category || "Система",
     sub: opts.sub || "",
@@ -71,19 +87,24 @@ function pushBoxNotice(data, opts) {
   });
 }
 
+/* =======================
+   Ошибка (рамка как в рынке труда)
+   ======================= */
+
 function pushErrorNotice(data, code, message) {
   var parts = [];
-  uiTitle(parts, "Ошибка");
-  uiTop(parts);
-  uiRow(parts, "Код", code, UI.BAD);
-  uiDivider(parts);
-  uiLine(parts, message, UI.BAD, true);
-  uiBottom(parts);
+  uiTitle(parts, "Ошибка", UI.BAD);
+  uiTop(parts, UI.BAD);
+
+  uiRow(parts, "Код", code, UI.VALUE, UI.BAD);
+  uiRow(parts, "Причина", message, UI.VALUE, UI.BAD);
+
+  uiBottom(parts, UI.BAD);
 
   pushBoxNotice(data, {
     category: "Система",
     sub: "Проверка критериев",
-    priority: 250,
+    priority: 999,
     parts: parts
   });
 }
@@ -220,15 +241,14 @@ function evaluateRule(rule, value) {
 }
 
 /* =======================
-   explainRuleParts (ВАРИАНТ 2)
-   - длинные значения/списки выводятся отдельным блоком "найдено:" по строкам
-   - ВСЕ значения лавандовые (UI.VALUE)
+   explainRuleParts (как у тебя, но в "ячейке")
    ======================= */
 
 function uiPrefix(parts, pad, isOk) {
   parts.push({ text: "┃", bold: true, color: UI.BORDER });
   parts.push({ text: pad, color: UI.TEXT });
-  parts.push({ text: "➔ ", bold: true, color: isOk ? UI.OK : UI.BAD });
+  // в стиле рынка труда: "хорошо" не подсвечиваем зелёным, оставляем VALUE
+  parts.push({ text: "➔ ", bold: true, color: isOk ? UI.VALUE : UI.BAD });
 }
 function uiText(parts, t) { parts.push({ text: String(t), color: UI.TEXT }); }
 function uiVal(parts, v)  { parts.push({ text: String(v), bold: true, color: UI.VALUE }); }
@@ -238,7 +258,6 @@ function uiFoundBlockParts(value, pad, isOk) {
   var parts = [];
   pad = pad || "";
 
-  // префикс теперь зависит от успеха проверки, а не от "есть значение"
   uiPrefix(parts, pad, !!isOk);
   uiText(parts, "найдено:");
   uiNL(parts);
@@ -305,7 +324,7 @@ function explainRuleParts(rule, value, level) {
     uiVal(parts, rule);
     uiNL(parts);
 
-    parts = parts.concat(uiFoundBlockParts(normalizeToArray(value), pad));
+    parts = parts.concat(uiFoundBlockParts(normalizeToArray(value), pad, okS));
     return { ok: okS, parts: parts };
   }
 
@@ -327,7 +346,7 @@ function explainRuleParts(rule, value, level) {
     uiVal(parts, rule.BETWEEN[0] + " .. " + rule.BETWEEN[1]);
     uiNL(parts);
 
-    parts = parts.concat(uiFoundBlockParts(v, pad));
+    parts = parts.concat(uiFoundBlockParts(v, pad, okB));
     return { ok: okB, parts: parts };
   }
 
@@ -336,14 +355,14 @@ function explainRuleParts(rule, value, level) {
   for (var i = 0; i < ops.length; i++) {
     var op = ops[i];
     if (rule && rule[op] !== undefined) {
-      var okOp = (typeof value === "number") && eval(value + op + rule[op]);
+      var okOp = evaluateNumericRule((function(){ var o={}; o[op]=rule[op]; return o; })(), value);
 
       uiPrefix(parts, pad, okOp);
       uiText(parts, "значение " + op + " ");
       uiVal(parts, rule[op]);
       uiNL(parts);
 
-      parts = parts.concat(uiFoundBlockParts(value, pad));
+      parts = parts.concat(uiFoundBlockParts(value, pad, okOp));
       return { ok: okOp, parts: parts };
     }
   }
@@ -404,7 +423,7 @@ function explainRuleParts(rule, value, level) {
   uiVal(parts, JSON.stringify(rule));
   uiNL(parts);
 
-  parts = parts.concat(uiFoundBlockParts(value, pad));
+  parts = parts.concat(uiFoundBlockParts(value, pad, false));
   return { ok: false, parts: parts };
 }
 
@@ -415,7 +434,7 @@ function explainRuleParts(rule, value, level) {
 function makeTitleParts(prefixLabel, valueText) {
   return [
     { text: "┃", bold: true, color: UI.BORDER },
-    { text: " " + String(prefixLabel), bold: true, color: UI.LABEL },
+    { text: " ➔ " + String(prefixLabel), bold: true, color: UI.LABEL },
     { text: String(valueText) + "\n", bold: true, color: UI.VALUE }
   ];
 }
@@ -423,7 +442,7 @@ function makeTitleParts(prefixLabel, valueText) {
 function makePlainTitleParts(title) {
   return [
     { text: "┃", bold: true, color: UI.BORDER },
-    { text: " " + String(title) + "\n", bold: true, color: UI.LABEL }
+    { text: " ➔ " + String(title) + "\n", bold: true, color: UI.LABEL }
   ];
 }
 
@@ -434,7 +453,7 @@ function checkProvinceCriteriaParts(province, criteria) {
     var value = getValueByPath(province, key);
     if (!evaluateRule(criteria[key], value)) {
       out.push({
-        titleParts: makeTitleParts("Критерий провинции: ", key),
+        titleParts: makeTitleParts("Критерий провинции", key),
         exp: explainRuleParts(criteria[key], value, 1)
       });
     }
@@ -449,7 +468,7 @@ function checkStateCriteriaParts(stateCtx, criteria) {
     var value = stateCtx[key] || [];
     if (!evaluateRule(criteria[key], value)) {
       out.push({
-        titleParts: makeTitleParts("Критерий государства: ", key),
+        titleParts: makeTitleParts("Критерий государства", key),
         exp: explainRuleParts(criteria[key], value, 1)
       });
     }
@@ -464,7 +483,7 @@ function checkStatePropertyCriteriaParts(stateCtx, criteria, title) {
     var value = stateCtx[key];
     if (!evaluateRule(criteria[key], value)) {
       out.push({
-        titleParts: makeTitleParts(title + ": ", key),
+        titleParts: makeTitleParts(title, key),
         exp: explainRuleParts(criteria[key], value, 1)
       });
     }
@@ -479,7 +498,7 @@ function checkFactionCriteriaParts(stateCtx, criteria) {
     var value = stateCtx[key] || [];
     if (!evaluateRule(criteria[key], value)) {
       out.push({
-        titleParts: makeTitleParts("Фракции государства: ", key),
+        titleParts: makeTitleParts("Фракции государства", key),
         exp: explainRuleParts(criteria[key], value, 1)
       });
     }
@@ -504,7 +523,7 @@ function checkBuildingCriteriaParts(rule, ctx, level) {
   function prefix(isOk) {
     parts.push({ text: "┃", bold: true, color: UI.BORDER });
     parts.push({ text: pad, color: UI.TEXT });
-    parts.push({ text: "➔ ", bold: true, color: isOk ? UI.OK : UI.BAD });
+    parts.push({ text: "➔ ", bold: true, color: isOk ? UI.VALUE : UI.BAD });
   }
 
   function t(x) { parts.push({ text: String(x), color: UI.TEXT }); }
@@ -586,24 +605,27 @@ function applyLimit(list, limit, reason) {
 }
 
 /* =======================
-   Уведомление по постройке
+   Уведомление по постройке (формат как рынок труда)
    ======================= */
 
 function pushBuildingNotice(data, b, statusOk) {
   var parts = [];
+  ensureNews(data);
 
-  uiTitle(parts, "Постройка " + b.Тип + " в " + b.Провинция);
-  uiTop(parts);
+  // Заголовок + рамка (как в трудовом рынке)
+  uiTitle(parts, "Проверка критериев постройки", UI.BORDER);
+  uiTop(parts, UI.BORDER);
 
-  uiRow(parts, "Статус: ", statusOk ? "Активная" : "Неактивная", statusOk ? UI.OK : UI.BAD);
+  uiRow(parts, "Здание", b.Тип, UI.VALUE, UI.BORDER);
+  uiRow(parts, "Провинция", b.Провинция, UI.VALUE, UI.BORDER);
+  uiRow(parts, "Статус", statusOk ? "Активная" : "Неактивная", statusOk ? UI.VALUE : UI.BAD, UI.BORDER);
 
   var reasons = b._reasonsParts || [];
   if (!statusOk && reasons.length) {
-    uiDivider(parts);
-    uiLine(parts, "┃ Причины:", UI.LABEL, true);
+    uiRow(parts, "Причины", String(reasons.length), UI.VALUE, UI.BORDER);
 
     reasons.forEach(function (block) {
-      uiBlank(parts);
+      uiBlank(parts, UI.BORDER);
 
       if (block.titleParts && block.titleParts.length) parts = parts.concat(block.titleParts);
       else parts = parts.concat(makePlainTitleParts(block.title || "Причина"));
@@ -614,7 +636,7 @@ function pushBuildingNotice(data, b, statusOk) {
     });
   }
 
-  uiBottom(parts);
+  uiBottom(parts, UI.BORDER);
 
   pushBoxNotice(data, {
     category: "Постройки",
@@ -629,7 +651,7 @@ function pushBuildingNotice(data, b, statusOk) {
    ======================= */
 
 function processCriteriaCheck(data) {
-  data.Новости = data.Новости || [];
+  ensureNews(data);
 
   /* === ПОСТРОЙКИ === */
   var buildings = [];
@@ -707,7 +729,7 @@ function processCriteriaCheck(data) {
 
     if (!tpl) {
       b._reasonsParts.push({
-        titleParts: makeTitleParts("Шаблон постройки: ", b.Тип),
+        titleParts: makeTitleParts("Шаблон постройки", b.Тип),
         exp: (function () {
           var p = [];
           uiPrefix(p, indent(1), false);
@@ -723,7 +745,7 @@ function processCriteriaCheck(data) {
 
     if (!prov) {
       b._reasonsParts.push({
-        titleParts: makeTitleParts("Провинция: ", b.Провинция),
+        titleParts: makeTitleParts("Провинция", b.Провинция),
         exp: (function () {
           var p = [];
           uiPrefix(p, indent(1), false);
@@ -739,7 +761,7 @@ function processCriteriaCheck(data) {
 
     b._isOurProvince = !!prov._isOur;
 
-    // чужая провинция — исключаем молча (как у тебя было)
+    // чужая провинция — исключаем молча
     if (!b._isOurProvince) {
       b._potential = false;
       return;
@@ -766,7 +788,7 @@ function processCriteriaCheck(data) {
 
         if (!evaluateRule(ruleRes, valRes)) {
           b._reasonsParts.push({
-            titleParts: makeTitleParts("Ресурс провинции: ", res),
+            titleParts: makeTitleParts("Ресурс провинции", res),
             exp: explainRuleParts(ruleRes, valRes, 1)
           });
           b._potential = false;
