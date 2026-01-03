@@ -394,7 +394,7 @@ uiVal(parts, rule[op]);
   // AND / OR / XOR / NOT
   if (rule && rule.AND) {
     parts.push({ text: "┃", bold: true, color: UI.BORDER });
-    parts.push({ text: pad + "Все условия должны быть выполнены\n", bold: true, color: UI.LABEL });
+    parts.push({ text: pad + "➥ Все условия должны быть выполнены\n", bold: true, color: UI.LABEL });
 
     var rA = rule.AND.map(function (r) { return explainRuleParts(r, value, level + 1, invert); });
     var okAnd = rA.every(function (r) { return r.ok; });
@@ -404,7 +404,7 @@ uiVal(parts, rule[op]);
 
   if (rule && rule.OR) {
     parts.push({ text: "┃", bold: true, color: UI.BORDER });
-    parts.push({ text: pad + "Хотя бы одно условие должно быть выполнено\n", bold: true, color: UI.LABEL });
+    parts.push({ text: pad + "➥ Хотя бы одно условие должно быть выполнено\n", bold: true, color: UI.LABEL });
 
     var rO = rule.OR.map(function (r) { return explainRuleParts(r, value, level + 1, invert); });
     var okOr = rO.some(function (r) { return r.ok; });
@@ -414,7 +414,7 @@ uiVal(parts, rule[op]);
 
   if (rule && rule.XOR) {
     parts.push({ text: "┃", bold: true, color: UI.BORDER });
-    parts.push({ text: pad + "Только одно из условий должно быть выполнено\n", bold: true, color: UI.LABEL });
+    parts.push({ text: pad + "➥ Только одно из условий должно быть выполнено\n", bold: true, color: UI.LABEL });
 
     var rX = rule.XOR.map(function (r) { return explainRuleParts(r, value, level + 1, invert); });
     var cnt = countTrue(rX.map(function (r) { return r.ok; }));
@@ -434,7 +434,7 @@ uiVal(parts, rule[op]);
 
   if (rule && rule.NOT) {
   parts.push({ text: "┃", bold: true, color: UI.BORDER });
-  parts.push({ text: pad + "Условие не должно выполняться\n", bold: true, color: UI.LABEL });
+  parts.push({ text: pad + "➥ Условие не должно выполняться\n", bold: true, color: UI.LABEL });
 
   // 👇 инверсия включается ТОЛЬКО для вложенного блока
   var rN = explainRuleParts(rule.NOT, value, level + 1, !invert);
@@ -565,21 +565,21 @@ function checkBuildingCriteriaParts(rule, ctx, level, invert) {
   function nl() { parts.push({ text: "\n", color: UI.TEXT }); }
 
   if (rule.AND) {
-    logicLine("Все условия должны быть выполнены");
+    logicLine("➥ Все условия должны быть выполнены");
     var resA = rule.AND.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1, invert); });
     resA.forEach(function (r) { parts = parts.concat(r.parts); });
     return { ok: resA.every(function (r) { return r.ok; }), parts: parts };
   }
 
   if (rule.OR) {
-    logicLine("Хотя бы одно из условий должно быть выполнено");
+    logicLine("➥ Хотя бы одно из условий должно быть выполнено");
     var resO = rule.OR.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1, invert); });
     resO.forEach(function (r) { parts = parts.concat(r.parts); });
     return { ok: resO.some(function (r) { return r.ok; }), parts: parts };
   }
 
   if (rule.NOT) {
-  logicLine("Условие не должно выполняться");
+  logicLine("➥ Условие не должно выполняться");
 
   // ✅ инвертируем визуализацию внутри NOT
   var rN = checkBuildingCriteriaParts(rule.NOT, ctx, level + 1, !invert);
@@ -591,7 +591,7 @@ function checkBuildingCriteriaParts(rule, ctx, level, invert) {
 }
   
   if (rule.XOR) {
-    logicLine("Только одно из условий должно быть выполнено");
+    logicLine("➥ Только одно из условий должно быть выполнено");
     var resX = rule.XOR.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1, invert); });
     resX.forEach(function (r) { parts = parts.concat(r.parts); });
 
