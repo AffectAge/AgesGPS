@@ -800,11 +800,11 @@ function processCriteriaCheck(data) {
 
     b._isOurProvince = !!prov._isOur;
 
-    // чужая провинция — исключаем молча
-    if (!b._isOurProvince) {
-      b._potential = false;
-      return;
-    }
+    // чужая провинция — НЕ ТРОГАЕМ ВООБЩЕ
+if (!b._isOurProvince) {
+  b._skipForeign = true;   // маркер: не менять статус и не писать новости
+  return;
+}
 
     /* === ПРОЧНОСТЬ === */
     if (tpl.МинимальнаяПрочность !== undefined) {
@@ -931,11 +931,15 @@ function processCriteriaCheck(data) {
 
   /* === ИТОГ: Активно + pushNotice === */
   buildings.forEach(function (b) {
-    var o = b._originalRef;
-    var statusOk = !!b._isOurProvince && !!b._potential && !b._blockedByLimit;
-    o.Активно = statusOk;
-    pushBuildingNotice(data, b, statusOk);
-  });
+  // ✅ чужие постройки не трогаем: не меняем Активно и не пишем новости
+  if (b._skipForeign) return;
+
+  var o = b._originalRef;
+  var statusOk = !!b._isOurProvince && !!b._potential && !b._blockedByLimit;
+
+  o.Активно = statusOk;
+  pushBuildingNotice(data, b, statusOk);
+});
 
   provinces.forEach(function (p) { delete p._isOur; });
 
