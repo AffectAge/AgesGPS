@@ -22,6 +22,7 @@ var UI = {
   BAD:    "#E36A6A",
   TEXT:   "#B9B1A4",
   DIM:    "#6E675F",
+  OK: "#6EE06E",
 
   TOP: "┌────────────────────────────────────────────────────────┐\n",
   BOT: "└────────────────────────────────────────────────────────┘\n",
@@ -256,9 +257,13 @@ function evaluateRule(rule, value) {
 function uiPrefix(parts, pad, isOk) {
   parts.push({ text: "┃", bold: true, color: UI.BORDER });
   parts.push({ text: pad, color: UI.TEXT });
-  // в стиле рынка труда: "хорошо" не подсвечиваем зелёным, оставляем VALUE
-  parts.push({ text: "➔ ", bold: true, color: isOk ? UI.VALUE : UI.BAD });
+  parts.push({
+    text: "➔ ",
+    bold: true,
+    color: isOk ? UI.OK : UI.BAD
+  });
 }
+
 function uiText(parts, t) { parts.push({ text: String(t), color: UI.TEXT }); }
 function uiVal(parts, v)  { parts.push({ text: String(v), bold: true, color: UI.VALUE }); }
 function uiNL(parts)      { parts.push({ text: "\n", color: UI.TEXT }); }
@@ -466,7 +471,7 @@ function checkProvinceCriteriaParts(province, criteria) {
     var value = getValueByPath(province, key);
     if (!evaluateRule(criteria[key], value)) {
       out.push({
-        titleParts: makeTitleParts("Критерий провинции", key),
+        titleParts: makeTitleParts("Критерий провинции: ", key),
         exp: explainRuleParts(criteria[key], value, 1)
       });
     }
@@ -481,7 +486,7 @@ function checkStateCriteriaParts(stateCtx, criteria) {
     var value = stateCtx[key] || [];
     if (!evaluateRule(criteria[key], value)) {
       out.push({
-        titleParts: makeTitleParts("Критерий государства", key),
+        titleParts: makeTitleParts("Критерий государства: ", key),
         exp: explainRuleParts(criteria[key], value, 1)
       });
     }
@@ -511,7 +516,7 @@ function checkFactionCriteriaParts(stateCtx, criteria) {
     var value = stateCtx[key] || [];
     if (!evaluateRule(criteria[key], value)) {
       out.push({
-        titleParts: makeTitleParts("Фракции государства", key),
+        titleParts: makeTitleParts("Фракции государства: ", key),
         exp: explainRuleParts(criteria[key], value, 1)
       });
     }
@@ -631,7 +636,7 @@ function pushBuildingNotice(data, b, statusOk) {
 
   uiRow(parts, "Здание", b.Тип, UI.VALUE, UI.BORDER);
   uiRow(parts, "Провинция", b.Провинция, UI.VALUE, UI.BORDER);
-  uiRow(parts, "Статус", statusOk ? "Активная" : "Неактивная", statusOk ? UI.VALUE : UI.BAD, UI.BORDER);
+  uiRow(parts, "Статус", statusOk ? "Активная" : "Неактивная", statusOk ? UI.OK : UI.BAD, UI.BORDER);
 
   var reasons = b._reasonsParts || [];
   if (!statusOk && reasons.length) {
