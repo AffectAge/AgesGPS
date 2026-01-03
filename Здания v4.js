@@ -324,8 +324,14 @@ function uiFoundBlockParts(value, pad, isOk) {
   return parts;
 }
 
-function explainRuleParts(rule, value, level) {
+function explainRuleParts(rule, value, level, invert) {
+  invert = !!invert;
   level = level || 0;
+  
+  function visualOk(ok) {
+  return invert ? !ok : ok;
+}
+
   var pad = indent(level);
   var parts = [];
 
@@ -333,18 +339,18 @@ function explainRuleParts(rule, value, level) {
   if (typeof rule === "string") {
     var okS = hasValue(value, rule);
 
-    uiPrefix(parts, pad, okS);
+    uiPrefix(parts, pad, visualOk(okS));
     uiText(parts, "Необходимо: ");
     uiVal(parts, rule);
     uiNL(parts);
 
-    parts = parts.concat(uiFoundBlockParts(normalizeToArray(value), pad, okS));
+    parts = parts.concat(uiFoundBlockParts(normalizeToArray(value), pad, visualOk(okS)));
     return { ok: okS, parts: parts };
   }
 
   // ARRAY (OR)
   if (Array.isArray(rule)) {
-    var resArr = rule.map(function (r) { return explainRuleParts(r, value, level + 1); });
+    var resArr = rule.map(function (r) { return explainRuleParts(r, value, level + 1, invert); });
     var okA = resArr.some(function (r) { return r.ok; });
     resArr.forEach(function (r) { parts = parts.concat(r.parts); });
     return { ok: okA, parts: parts };
@@ -355,14 +361,14 @@ function explainRuleParts(rule, value, level) {
     var v = value;
     var okB = typeof v === "number" && v >= rule.BETWEEN[0] && v <= rule.BETWEEN[1];
 
-    uiPrefix(parts, pad, okB);
+    uiPrefix(parts, pad, visualOk(okB));
     uiText(parts, "Значение между ");
 uiVal(parts, rule.BETWEEN[0]);
 uiText(parts, " и ");
 uiVal(parts, rule.BETWEEN[1]);
     uiNL(parts);
 
-    parts = parts.concat(uiFoundBlockParts(v, pad, okB));
+    parts = parts.concat(uiFoundBlockParts(v, pad, visualOk(okB)));
     return { ok: okB, parts: parts };
   }
 
@@ -373,14 +379,14 @@ uiVal(parts, rule.BETWEEN[1]);
     if (rule && rule[op] !== undefined) {
       var okOp = evaluateNumericRule((function(){ var o={}; o[op]=rule[op]; return o; })(), value);
 
-      uiPrefix(parts, pad, okOp);
+      uiPrefix(parts, pad, visualOk(okOp));
       uiText(parts, "Значение ");
 uiVal(parts, OP_LABELS[op] || op);
 uiText(parts, " ");
 uiVal(parts, rule[op]);
       uiNL(parts);
 
-      parts = parts.concat(uiFoundBlockParts(value, pad, okOp));
+      parts = parts.concat(uiFoundBlockParts(value, pad, visualOk(okOp)));
       return { ok: okOp, parts: parts };
     }
   }
@@ -390,7 +396,7 @@ uiVal(parts, rule[op]);
     parts.push({ text: "┃", bold: true, color: UI.BORDER });
     parts.push({ text: pad + "Все условия должны быть выполнены\n", bold: true, color: UI.LABEL });
 
-    var rA = rule.AND.map(function (r) { return explainRuleParts(r, value, level + 1); });
+    var rA = rule.AND.map(function (r) { return explainRuleParts(r, value, level + 1, invert); });
     var okAnd = rA.every(function (r) { return r.ok; });
     rA.forEach(function (r) { parts = parts.concat(r.parts); });
     return { ok: okAnd, parts: parts };
@@ -400,7 +406,7 @@ uiVal(parts, rule[op]);
     parts.push({ text: "┃", bold: true, color: UI.BORDER });
     parts.push({ text: pad + "Хотя бы одно условие должно быть выполнено\n", bold: true, color: UI.LABEL });
 
-    var rO = rule.OR.map(function (r) { return explainRuleParts(r, value, level + 1); });
+    var rO = rule.OR.map(function (r) { return explainRuleParts(r, value, level + 1, invert); });
     var okOr = rO.some(function (r) { return r.ok; });
     rO.forEach(function (r) { parts = parts.concat(r.parts); });
     return { ok: okOr, parts: parts };
@@ -410,13 +416,13 @@ uiVal(parts, rule[op]);
     parts.push({ text: "┃", bold: true, color: UI.BORDER });
     parts.push({ text: pad + "Только одно из условий должно быть выполнено\n", bold: true, color: UI.LABEL });
 
-    var rX = rule.XOR.map(function (r) { return explainRuleParts(r, value, level + 1); });
+    var rX = rule.XOR.map(function (r) { return explainRuleParts(r, value, level + 1, invert); });
     var cnt = countTrue(rX.map(function (r) { return r.ok; }));
     var okX = (cnt === 1);
 
     rX.forEach(function (r) { parts = parts.concat(r.parts); });
 
-    uiPrefix(parts, pad, okX);
+    uiPrefix(parts, pad, visualOk(okX));
     uiText(parts, "выполнено ");
     uiVal(parts, cnt);
     uiText(parts, " из ");
@@ -427,21 +433,25 @@ uiVal(parts, rule[op]);
   }
 
   if (rule && rule.NOT) {
-    parts.push({ text: "┃", bold: true, color: UI.BORDER });
-    parts.push({ text: pad + "Условие не должно выполняться\n", bold: true, color: UI.LABEL });
+  parts.push({ text: "┃", bold: true, color: UI.BORDER });
+  parts.push({ text: pad + "Условие не должно выполняться\n", bold: true, color: UI.LABEL });
 
-    var rN = explainRuleParts(rule.NOT, value, level + 1);
-    parts = parts.concat(rN.parts);
-    return { ok: !rN.ok, parts: parts };
-  }
+  // 👇 инверсия включается ТОЛЬКО для вложенного блока
+  var rN = explainRuleParts(rule.NOT, value, level + 1, !invert);
+
+  var okNot = !rN.ok;
+
+  parts = parts.concat(rN.parts);
+  return { ok: okNot, parts: parts };
+}
 
   // fallback
-  uiPrefix(parts, pad, false);
+  uiPrefix(parts, pad, visualOk(false));
   uiText(parts, "Условие не распознано: ");
   uiVal(parts, JSON.stringify(rule));
   uiNL(parts);
 
-  parts = parts.concat(uiFoundBlockParts(value, pad, false));
+  parts = parts.concat(uiFoundBlockParts(value, pad, visualOk(false)));
   return { ok: false, parts: parts };
 }
 
@@ -528,8 +538,14 @@ function checkFactionCriteriaParts(stateCtx, criteria) {
    Критерии построек (активные) -> parts
    ======================= */
 
-function checkBuildingCriteriaParts(rule, ctx, level) {
+function checkBuildingCriteriaParts(rule, ctx, level, invert) {
   level = level || 0;
+  invert = !!invert;
+  
+  function visualOk(ok) {
+    return invert ? !ok : ok;
+  }
+  
   var pad = indent(level);
   var parts = [];
 
@@ -541,7 +557,7 @@ function checkBuildingCriteriaParts(rule, ctx, level) {
   function prefix(isOk) {
     parts.push({ text: "┃", bold: true, color: UI.BORDER });
     parts.push({ text: pad, color: UI.TEXT });
-    parts.push({ text: "➔ ", bold: true, color: isOk ? UI.VALUE : UI.BAD });
+    parts.push({ text: "➔ ", bold: true, color: isOk ? UI.OK : UI.BAD });
   }
 
   function t(x) { parts.push({ text: String(x), color: UI.TEXT }); }
@@ -550,34 +566,39 @@ function checkBuildingCriteriaParts(rule, ctx, level) {
 
   if (rule.AND) {
     logicLine("Все условия должны быть выполнены");
-    var resA = rule.AND.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1); });
+    var resA = rule.AND.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1, invert); });
     resA.forEach(function (r) { parts = parts.concat(r.parts); });
     return { ok: resA.every(function (r) { return r.ok; }), parts: parts };
   }
 
   if (rule.OR) {
     logicLine("Хотя бы одно из условий должно быть выполнено");
-    var resO = rule.OR.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1); });
+    var resO = rule.OR.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1, invert); });
     resO.forEach(function (r) { parts = parts.concat(r.parts); });
     return { ok: resO.some(function (r) { return r.ok; }), parts: parts };
   }
 
   if (rule.NOT) {
-    logicLine("Условие не должно выполняться");
-    var rN = checkBuildingCriteriaParts(rule.NOT, ctx, level + 1);
-    parts = parts.concat(rN.parts);
-    return { ok: !rN.ok, parts: parts };
-  }
+  logicLine("Условие не должно выполняться");
 
+  // ✅ инвертируем визуализацию внутри NOT
+  var rN = checkBuildingCriteriaParts(rule.NOT, ctx, level + 1, !invert);
+
+  var okNot = !rN.ok;
+
+  parts = parts.concat(rN.parts);
+  return { ok: okNot, parts: parts };
+}
+  
   if (rule.XOR) {
     logicLine("Только одно из условий должно быть выполнено");
-    var resX = rule.XOR.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1); });
+    var resX = rule.XOR.map(function (r) { return checkBuildingCriteriaParts(r, ctx, level + 1, invert); });
     resX.forEach(function (r) { parts = parts.concat(r.parts); });
 
     var cnt = countTrue(resX.map(function (r) { return r.ok; }));
     var okX = (cnt === 1);
 
-    prefix(okX);
+    prefix(visualOk(okX));
     t("Выполнено "); v(cnt); t(" из "); v(resX.length); nl();
     return { ok: okX, parts: parts };
   }
@@ -586,10 +607,10 @@ function checkBuildingCriteriaParts(rule, ctx, level) {
   var found = ctx[rule.Тип] || 0;
   var ok = evaluateRule(rule.Количество, found);
 
-  prefix(ok);
+  prefix(visualOk(ok));
   t("Постройка "); v(rule.Тип); t(" (найдено: "); v(found); t(")"); nl();
 
-  var exp = explainRuleParts(rule.Количество, found, level + 1);
+  var exp = explainRuleParts(rule.Количество, found, level + 1, invert);
   parts = parts.concat(exp.parts);
 
   return { ok: ok, parts: parts };
@@ -747,7 +768,7 @@ function processCriteriaCheck(data) {
 
     if (!tpl) {
       b._reasonsParts.push({
-        titleParts: makeTitleParts("Шаблон постройки", b.Тип),
+        titleParts: makeTitleParts("Шаблон постройки ", b.Тип),
         exp: (function () {
           var p = [];
           uiPrefix(p, indent(1), false);
