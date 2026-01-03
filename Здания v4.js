@@ -919,6 +919,16 @@ if (!b._isOurProvince) {
         applyLimit(map[p], t.Лимит.Провинция, "Превышен лимит на провинцию (" + t.Лимит.Провинция + ")");
       }
     }
+    
+    if (t.Лимит.Мир) {
+  applyLimit(
+    buildings.filter(function (b) {
+      return b._potential && b.Тип === type;
+    }),
+    t.Лимит.Мир,
+    "Превышен лимит на мир (" + t.Лимит.Мир + ")"
+  );
+}
 
     if (t.Лимит.Государство) {
       applyLimit(
