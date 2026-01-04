@@ -123,6 +123,28 @@ function pushErrorNotice(data, code, message) {
    Базовые утилиты
    ======================= */
 
+function getStateIdFromStateData(data) {
+  var rows = normalizeToArray(data['Данные государства']);
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var cells = normalizeToArray(row);
+
+    for (var j = 0; j < cells.length; j++) {
+      var cell = cells[j];
+      if (!cell || typeof cell !== 'object') continue;
+
+      if (cell['Идентификатор государства'] !== undefined && cell['Идентификатор государства'] !== null) {
+        var raw = cell['Идентификатор государства'];
+        var s = String(raw).trim();
+        if (s !== "") return s; // возвращаем строкой, как ты дальше сравниваешь p.Владелец
+      }
+    }
+  }
+
+  return null;
+}
+
 function indent(level) { return '  '.repeat(level); }
 
 function normalizeToArray(value) {
@@ -713,18 +735,16 @@ function processCriteriaCheck(data) {
   }
 
   /* === ГОСУДАРСТВО: stateId === */
-  var stateId = null;
-  if (STATE_CONTEXT['Идентификатор государства'] && STATE_CONTEXT['Идентификатор государства'].length) {
-    stateId = String(STATE_CONTEXT['Идентификатор государства'][0]).trim();
-  }
-  if (!stateId) {
-    pushErrorNotice(
-      data,
-      "STATE_ID_NOT_FOUND",
-      "Идентификатор государства не найден в data['Данные государства'] (ключ: 'Идентификатор государства')."
-    );
-    return data;
-  }
+var stateId = getStateIdFromStateData(data);
+
+if (!stateId) {
+  pushErrorNotice(
+    data,
+    "STATE_ID_NOT_FOUND",
+    "Идентификатор государства не найден в data['Данные государства'] (ожидается элемент вида {'Идентификатор государства': 1})."
+  );
+  return data;
+}
 
   /* === ПРОВИНЦИИ === */
   var provinces = getAllProvinces(data);
