@@ -455,12 +455,14 @@ function LOG_modeLabel_(mode) {
   return "LAND (суша)";
 }
 
-function LOG_buildMarketReport_(marketId, capitalKey, ourKeys, provByKey) {
+function LOG_buildMarketReport_(marketId, capitalKey, capitalOwner, ourKeys, scopeMarketKeys, provByKey) {
   var sum = 0, cnt = 0, isolated = 0;
   var modeCount = { LAND:0, SEA:0, AIR:0, SPACE:0 };
   var worst = [];
   var top = [];
 
+  // Сначала собираем cap по нашим провинциям
+  var ourCaps = [];
   for (var i = 0; i < ourKeys.length; i++) {
     var pk = ourKeys[i];
     var p = provByKey[pk];
@@ -476,6 +478,7 @@ function LOG_buildMarketReport_(marketId, capitalKey, ourKeys, provByKey) {
     modeCount[mode]++;
 
     top.push({ prov: pk, cap: cap, mode: mode });
+    ourCaps.push({ prov: pk, cap: cap, mode: mode });
 
     if (cap <= 0) {
       isolated++;
@@ -483,28 +486,43 @@ function LOG_buildMarketReport_(marketId, capitalKey, ourKeys, provByKey) {
     }
   }
 
+  var avg = cnt ? (sum / cnt) : 0;
+
+  // Топ узлов (как было)
   top.sort(function(a,b){ return b.cap - a.cap; });
   top = top.slice(0, 5);
-
   if (worst.length > 10) worst = worst.slice(0, 10);
 
+  // Основной режим (как было)
   var mainMode = "LAND";
   var bestC = -1;
   for (var m in modeCount) {
     if (modeCount[m] > bestC) { bestC = modeCount[m]; mainMode = m; }
   }
 
-  var avg = cnt ? (sum / cnt) : 0;
+  // ✅ Наши провинции ниже средней (cap < avg), максимум 10
+  var belowAvg = ourCaps
+    .filter(function(x){ return x.cap > 0 && x.cap < avg; }) // можно убрать x.cap>0 если хочешь включать нулевые
+    .sort(function(a,b){ return a.cap - b.cap; })
+    .slice(0, 10);
+
+  // ✅ Страны рынка
+  var countries = LOG_collectMarketCountries_(marketId, scopeMarketKeys, provByKey);
 
   return {
     marketId: String(marketId),
     capital: String(capitalKey || ""),
+    capitalOwner: String(capitalOwner || "Неизвестно"),
+    countries: countries,
+
     ourCount: cnt,
     isolatedCount: isolated,
     avgCap: avg,
     mainMode: mainMode,
+
     worst: worst,
-    top: top
+    top: top,
+    belowAvg: belowAvg
   };
 }
 
@@ -525,9 +543,26 @@ function LOG_pushMarketNotice_(data, report) {
   parts.push({ text: " ➔ Рынок: ", bold: true, color: LABEL });
   parts.push({ text: report.marketId + "\n", bold: true, color: VALUE });
 
+parts.push({ text: "┃", bold: true, color: ORANGE });
+parts.push({ text: " ➔ Владелец столицы: ", bold: true, color: LABEL });
+parts.push({ text: report.capitalOwner + "\n", bold: true, color: VALUE });
+
   parts.push({ text: "┃", bold: true, color: ORANGE });
   parts.push({ text: " ➔ Столица рынка: ", bold: true, color: LABEL });
   parts.push({ text: report.capital + "\n", bold: true, color: VALUE });
+
+if (report.countries && report.countries.length) {
+  parts.push({ text: "┃\n", bold: true, color: ORANGE });
+  parts.push({ text: "┃", bold: true, color: ORANGE });
+  parts.push({ text: " ➔ Страны в рынке: ", bold: true, color: LABEL });
+  parts.push({ text: String(report.countries.length) + "\n", bold: true, color: VALUE });
+
+  for (var ci = 0; ci < report.countries.length; ci++) {
+    parts.push({ text: "┃", bold: true, color: ORANGE });
+    parts.push({ text: "   • ", bold: true, color: LABEL });
+    parts.push({ text: report.countries[ci] + "\n", bold: true, color: VALUE });
+  }
+}
 
   parts.push({ text: "┃", bold: true, color: ORANGE });
   parts.push({ text: " ➔ Наших провинций: ", bold: true, color: LABEL });
@@ -563,6 +598,21 @@ function LOG_pushMarketNotice_(data, report) {
       parts.push({ text: String(w.reason) + "\n", bold: true, color: RED });
     }
   }
+
+if (report.belowAvg && report.belowAvg.length) {
+  parts.push({ text: "┃\n", bold: true, color: ORANGE });
+  parts.push({ text: "┃", bold: true, color: ORANGE });
+  parts.push({ text: " ➔ Ниже средней (до 10):\n", bold: true, color: LABEL });
+
+  for (var bi = 0; bi < report.belowAvg.length; bi++) {
+    var b = report.belowAvg[bi];
+    parts.push({ text: "┃", bold: true, color: ORANGE });
+    parts.push({ text: "   • ", bold: true, color: LABEL });
+    parts.push({ text: String(b.prov) + " — ", bold: true, color: VALUE });
+    parts.push({ text: LOG_fmtInt_(b.cap), bold: true, color: VALUE });
+    parts.push({ text: " (" + String(b.mode) + ")\n", bold: true, color: VALUE });
+  }
+}
 
   if (report.top && report.top.length) {
     parts.push({ text: "┃\n", bold: true, color: ORANGE });
@@ -730,7 +780,17 @@ var best = LOG_widestPathMultiSource_(graph, startNodes, startCaps);
     }
 
     // push 1 news card per market
-    var report = LOG_buildMarketReport_(marketId, scope.capitalKey, ourKeys, provByKey);
+    var capProv = provByKey[scope.capitalKey] || null;
+var capitalOwner = capProv ? LOG_ownerLabel_(capProv.Владелец) : "Неизвестно";
+
+var report = LOG_buildMarketReport_(
+  marketId,
+  scope.capitalKey,
+  capitalOwner,
+  ourKeys,
+  scope.marketProvKeys,
+  provByKey
+);
     LOG_pushMarketNotice_(data, report);
   });
 
@@ -750,4 +810,24 @@ function LOG_nodeBaseCap_(provKey, mode, infraByProv) {
   if (mode === "AIR") return LOG_capAir_(inf);
   if (mode === "SPACE") return LOG_capSpace_(inf);
   return LOG_capLand_(inf); // LAND
+}
+
+function LOG_ownerLabel_(owner) {
+  if (owner === null || owner === undefined || String(owner).trim() === "") return "Неизвестно";
+  return String(owner);
+}
+
+function LOG_collectMarketCountries_(marketId, scopeMarketKeys, provByKey) {
+  var set = {};
+  for (var i = 0; i < scopeMarketKeys.length; i++) {
+    var pk = scopeMarketKeys[i];
+    var p = provByKey[pk];
+    if (!p) continue;
+    var o = LOG_ownerLabel_(p.Владелец);
+    set[o] = true;
+  }
+
+  var arr = Object.keys(set);
+  arr.sort(); // стабильно/красиво
+  return arr;
 }
