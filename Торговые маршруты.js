@@ -400,15 +400,18 @@ LOG_MaxHeap_.prototype.pop = function () {
 };
 LOG_MaxHeap_.prototype.size = function () { return this.arr.length; };
 
-function LOG_widestPathMultiSource_(graph, startNodes) {
+function LOG_widestPathMultiSource_(graph, startNodes, startCaps) {
   var best = {}; // node -> cap
   var used = {};
   var heap = new LOG_MaxHeap_();
 
   for (var i = 0; i < startNodes.length; i++) {
     var n = startNodes[i];
-    best[n] = 1e15; // бесконечный старт
-    heap.push({ node: n, cap: best[n] });
+    var c = (startCaps && startCaps[n] !== undefined) ? startCaps[n] : 0;
+
+    if (!(c > 0)) continue;     // нет ёмкости — нет смысла стартовать
+    best[n] = c;
+    heap.push({ node: n, cap: c });
   }
 
   while (heap.size()) {
@@ -434,7 +437,6 @@ function LOG_widestPathMultiSource_(graph, startNodes) {
 
   return best;
 }
-
 
 /* =======================
    НОВОСТИ (как рынок труда): 1 карточка на рынок
@@ -605,6 +607,7 @@ function LOGISTICS_computeOurThroughputByMarkets(data) {
   if (!provinces.length) return data;
 
   var stateId = LOG_getStateIdFromStateData_(data);
+
   if (!stateId) {
     // Если хочешь — можешь заменить на свою ошибку как в рынке труда
     pushNotice(data, {
@@ -678,11 +681,19 @@ function LOGISTICS_computeOurThroughputByMarkets(data) {
     // граф рынка
     var graph = LOG_buildMultimodalGraph_(provByKey, scope.marketProvKeys, infraByProv);
 
-    // стартовые узлы столицы
-    var startNodes = LOG_capitalStartNodes_(scope.capitalKey, infraByProv);
+// стартовые узлы столицы
+var startNodes = LOG_capitalStartNodes_(scope.capitalKey, infraByProv);
 
-    // widest path
-    var best = LOG_widestPathMultiSource_(graph, startNodes);
+// ✅ стартовые ёмкости зависят от построек в столице (как у остальных провинций)
+var startCaps = {};
+for (var si = 0; si < startNodes.length; si++) {
+  var node = startNodes[si];
+  var mode = String(node.split(":").pop()); // LAND/SEA/AIR/SPACE
+  startCaps[node] = LOG_nodeBaseCap_(scope.capitalKey, mode, infraByProv);
+}
+
+// widest path
+var best = LOG_widestPathMultiSource_(graph, startNodes, startCaps);
 
     // запись результата: только в НАШИ провинции этого рынка
     for (var i = 0; i < ourKeys.length; i++) {
@@ -724,4 +735,19 @@ function LOGISTICS_computeOurThroughputByMarkets(data) {
   });
 
   return data;
+}
+
+
+/* =======================
+   Утилиты
+   ======================= */
+
+function LOG_nodeBaseCap_(provKey, mode, infraByProv) {
+  var inf = infraByProv[provKey] || null;
+  mode = String(mode || "LAND").toUpperCase();
+
+  if (mode === "SEA") return LOG_capSea_(inf);
+  if (mode === "AIR") return LOG_capAir_(inf);
+  if (mode === "SPACE") return LOG_capSpace_(inf);
+  return LOG_capLand_(inf); // LAND
 }
