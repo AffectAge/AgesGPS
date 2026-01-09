@@ -1,29 +1,32 @@
 /* =========================================================
    ТОРГОВЛЯ: рынки в СТОЛБЦЕ (1 рынок = 1 ячейка)
-   ✅ Ключи рынков/товаров — НА РУССКОМ
-   ✅ НЕ ТРОГАЕТ существующие рынки (не меняет структуру/товары/цены)
-   ✅ Делает ТОЛЬКО:
-      + создаёт рынок, если он есть у провинции, но НЕТ данных в столбце Торговля
-      - удаляет рынок, если к нему НЕ принадлежит ни одна провинция
-
-   Ожидаемая модель:
-   - data.Торговля = Array (столбец по строкам), каждая ячейка:
-       { "Идентификатор рынка": "Азиатский", "Товары": { ... } }
-   - data.Провинции = Array (столбец), в одной из ячеек хранится Array провинций
-   - data["Шаблоны зданий"] = Array (столбец), каждая ячейка объект/массив шаблонов
-     Товары берём строго из Входы/Выходы
+   + НОВОСТЬ-ОТЧЁТ (1 карточка) по итогам синхронизации
 
    Требования проекта:
    - normalizeToArray(value)
+   - ensureNews(data)         (у тебя уже есть)
+   - pushNotice(data, {category, sub, priority, parts}) (у тебя уже есть)
    ========================================================= */
 
 function TRADE_syncMarkets(data) {
   if (!data || typeof data !== "object") return data;
 
-  // ensure column exists
+  // ensure trade column exists
   if (!Array.isArray(data.Торговля)) data.Торговля = [];
 
-  // 1) provinces: берём первую ячейку-массив из столбца "Провинции"
+  // === счётчики отчёта ===
+  var rep = {
+    marketsPresent: 0,
+    marketsExisting: 0,
+    marketsCreated: 0,
+    marketsRemoved: 0,
+    goodsUniverse: 0,
+    marketsGoodsSynced: 0,
+    goodsAdded: 0,
+    goodsRemoved: 0
+  };
+
+  // 1) provinces: первая ячейка-массив из столбца "Провинции"
   var provinces = TRADE_pickFirstArrayCell_(data.Провинции);
 
   // 2) set рынков, которые реально присутствуют в провинциях
@@ -35,13 +38,16 @@ function TRADE_syncMarkets(data) {
     var mid = TRADE_marketIdFromProvince_(p);
     if (mid) present[mid] = true;
   }
+  rep.marketsPresent = Object.keys(present).length;
 
-  // 3) товары по шаблонам (нужны ТОЛЬКО для создания НОВЫХ рынков)
+  // 3) set товаров из шаблонов (строго Входы/Выходы)
   var goodsSet = TRADE_collectGoodsSetFromTemplatesColumn_STRICT_(data["Шаблоны зданий"]);
+  rep.goodsUniverse = Object.keys(goodsSet).length;
 
   // 4) индекс существующих рынков в столбце Торговля
-  //    ВАЖНО: существующие рынки НЕ МЕНЯЕМ — только индексируем
-  var byId = {}; // marketId -> rowIndex
+  var byId = {};         // marketId -> rowIndex
+  var liveRowIdx = [];   // rowIndex[] рынков, которые должны существовать (present)
+
   for (var r = 0; r < data.Торговля.length; r++) {
     var cell = data.Торговля[r];
     if (!cell || typeof cell !== "object" || Array.isArray(cell)) continue;
@@ -50,11 +56,21 @@ function TRADE_syncMarkets(data) {
     if (!id) continue;
 
     byId[id] = r;
+    rep.marketsExisting++;
+
+    // если рынок реально используется провинциями — он “живой”
+    if (present[id]) liveRowIdx.push(r);
+
+    // ensure shape
+    if (!cell["Товары"] || typeof cell["Товары"] !== "object") cell["Товары"] = {};
+    if (cell["Идентификатор рынка"] == null || String(cell["Идентификатор рынка"]).trim() === "") {
+      cell["Идентификатор рынка"] = String(id);
+    }
   }
 
-  // 5) + создать рынки, которых нет в data.Торговля, но есть в провинциях
+  // 5) + создать отсутствующие рынки (первый свободный слот)
   Object.keys(present).forEach(function (mid) {
-    if (byId[mid] !== undefined) return; // уже есть данные — не трогаем
+    if (byId[mid] !== undefined) return;
 
     var marketObj = TRADE_makeDefaultMarket_RU_(data, mid, goodsSet);
 
@@ -67,26 +83,94 @@ function TRADE_syncMarkets(data) {
     }
 
     byId[mid] = slot;
+    liveRowIdx.push(slot);
+    rep.marketsCreated++;
   });
 
   // 6) - удалить рынки, к которым не принадлежит ни одна провинция
-  //    (ОЧИЩАЕМ ячейку, не схлопываем столбец)
   Object.keys(byId).forEach(function (mid) {
     if (present[mid]) return;
-
     var idx = byId[mid];
     data.Торговля[idx] = ""; // свободная ячейка
     delete byId[mid];
+    rep.marketsRemoved++;
   });
+
+  // 7) ✅ синхронизировать товары в “живых” рынках
+  for (var k = 0; k < liveRowIdx.length; k++) {
+    var rowIdx = liveRowIdx[k];
+    var m = data.Торговля[rowIdx];
+    if (!m || typeof m !== "object" || Array.isArray(m)) continue;
+
+    var mid2 = TRADE_marketIdFromMarketCell_RU_(m);
+    if (!mid2 || !present[mid2]) continue;
+
+    if (!m["Товары"] || typeof m["Товары"] !== "object") m["Товары"] = {};
+    var goods = m["Товары"];
+
+    // + добавить недостающие товары (не меняя существующие)
+    Object.keys(goodsSet).forEach(function (g) {
+      if (!goods[g] || typeof goods[g] !== "object") {
+        goods[g] = TRADE_defaultMarketGoodState_RU_(data, g);
+        rep.goodsAdded++;
+      }
+    });
+
+    // - удалить лишние товары
+    Object.keys(goods).forEach(function (g) {
+      if (!goodsSet[g]) {
+        delete goods[g];
+        rep.goodsRemoved++;
+      }
+    });
+
+    rep.marketsGoodsSynced++;
+  }
+
+  // 8) новость-отчёт (1 карточка)
+  TRADE_pushSyncNotice_RU_(data, rep);
 
   return data;
 }
 
 /* =======================
-   Helpers
+   NEWS (Vic3-tooltip style: единый тёмно-серый цвет)
    ======================= */
 
-// Берёт первую ячейку-ARRAY из колонки (data.Провинции = массив по строкам)
+function TRADE_pushSyncNotice_RU_(data, rep) {
+  if (typeof ensureNews === "function") ensureNews(data);
+  if (typeof pushNotice !== "function") return;
+
+  var C = "#6E675F"; // единый тёмно-серый
+
+  function line(parts, s) { parts.push({ text: String(s) + "\n", color: C }); }
+
+  var parts = [];
+  line(parts, "Торговля: инициализация рынков и товаров");
+  line(parts, "┌────────────────────────────────────────────────────────┐");
+  line(parts, "┃ ➔ Рынков в провинциях: " + String(rep.marketsPresent));
+  line(parts, "┃ ➔ Рынков с данными (до): " + String(rep.marketsExisting));
+  line(parts, "┃ ➔ Создано рынков: " + String(rep.marketsCreated));
+  line(parts, "┃ ➔ Удалено рынков: " + String(rep.marketsRemoved));
+  line(parts, "┃");
+  line(parts, "┃ ➔ Товаров в шаблонах: " + String(rep.goodsUniverse));
+  line(parts, "┃ ➔ Рынков синхронизировано по товарам: " + String(rep.marketsGoodsSynced));
+  line(parts, "┃ ➔ Добавлено товаров: " + String(rep.goodsAdded));
+  line(parts, "┃ ➔ Удалено товаров: " + String(rep.goodsRemoved));
+  line(parts, "└────────────────────────────────────────────────────────┘");
+
+  pushNotice(data, {
+    category: "Торговля",
+    sub: "Инициализация",
+    priority: 95,
+    parts: parts
+  });
+}
+
+/* =======================
+   Helpers (как раньше)
+   ======================= */
+
 function TRADE_pickFirstArrayCell_(col) {
   if (!Array.isArray(col)) return [];
   for (var i = 0; i < col.length; i++) {
@@ -95,7 +179,6 @@ function TRADE_pickFirstArrayCell_(col) {
   return [];
 }
 
-// market id из провинции
 function TRADE_marketIdFromProvince_(p) {
   if (!p || typeof p !== "object") return null;
   if (p.РынокId != null && String(p.РынокId).trim() !== "") return String(p.РынокId).trim();
@@ -103,23 +186,19 @@ function TRADE_marketIdFromProvince_(p) {
   return null;
 }
 
-// market id из ячейки рынка (русские ключи)
 function TRADE_marketIdFromMarketCell_RU_(m) {
   if (!m || typeof m !== "object") return null;
 
-  // основной ключ
   if (m["Идентификатор рынка"] != null && String(m["Идентификатор рынка"]).trim() !== "") {
     return String(m["Идентификатор рынка"]).trim();
   }
-
-  // мягкая совместимость со старым
+  // backward-compat
   if (m.РынокId != null && String(m.РынокId).trim() !== "") return String(m.РынокId).trim();
   if (m.id != null && String(m.id).trim() !== "") return String(m.id).trim();
 
   return null;
 }
 
-// Свободная ячейка: null/undefined/"" или не-объект или массив
 function TRADE_findFirstFreeRow_(tradeCol) {
   if (!Array.isArray(tradeCol)) return -1;
   for (var i = 0; i < tradeCol.length; i++) {
@@ -131,7 +210,6 @@ function TRADE_findFirstFreeRow_(tradeCol) {
   return -1;
 }
 
-// Собираем товары строго из Входы/Выходы по всей колонке шаблонов
 function TRADE_collectGoodsSetFromTemplatesColumn_STRICT_(templatesCol) {
   var set = {};
   if (!Array.isArray(templatesCol)) return set;
@@ -169,11 +247,6 @@ function TRADE_collectGoodsSetFromTemplatesColumn_STRICT_(templatesCol) {
   return set;
 }
 
-/* =======================
-   Создание НОВОГО рынка (русские ключи)
-   - existing рынки не трогаем, только новые инициализируем
-   ======================= */
-
 function TRADE_makeDefaultMarket_RU_(data, marketId, goodsSet) {
   var market = {
     "Идентификатор рынка": String(marketId),
@@ -187,12 +260,9 @@ function TRADE_makeDefaultMarket_RU_(data, marketId, goodsSet) {
   return market;
 }
 
-// Дефолт товара (русские ключи). Базовую цену можно позже централизовать.
 function TRADE_defaultMarketGoodState_RU_(data, good) {
   var basePrice = 1;
 
-  // Опционально: если заведёшь глобальный справочник цен:
-  // data.ТорговляСправочникТоваров = { "Железо": { "Базовая цена": 12 }, ... }
   if (data && data.ТорговляСправочникТоваров && data.ТорговляСправочникТоваров[good]) {
     var bp = data.ТорговляСправочникТоваров[good]["Базовая цена"];
     if (bp !== undefined && bp !== null && !isNaN(Number(bp))) basePrice = Number(bp);
@@ -200,16 +270,10 @@ function TRADE_defaultMarketGoodState_RU_(data, good) {
 
   return {
     "Цена": basePrice,
-
-    // stockpile
     "Запас": 0,
-
-    // потоки за ход (ты будешь заполнять другими функциями)
-    "Поток предложения": 0,
-    "Поток спроса": 0,
-    "Нехватка спроса": 0,
-
-    // статистика (опционально)
+    "Предложение": 0,
+    "Спрос": 0,
+    "Нехватка": 0,
     "Куплено": 0,
     "Продано": 0
   };
