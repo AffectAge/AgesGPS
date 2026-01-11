@@ -92,6 +92,8 @@ function TRADE_runBuildingCommerce(data) {
     accessPool: accessPool
   });
 
+TRADE_writeBackAccessMarketsPool_(accessRef.container, accessPool);
+
   // Summary notice
   TRADE_pushCommerceSummaryNotice_RU_(data, rep);
 
@@ -569,8 +571,19 @@ function TRADE_indexMarkets_(tradeCol) {
   var out = {};
   if (!Array.isArray(tradeCol)) return out;
 
+  // Понимаем 1D и 2D (в 2D берём все ячейки)
+  var flat = [];
   for (var r = 0; r < tradeCol.length; r++) {
-    var cell = tradeCol[r];
+    var row = tradeCol[r];
+    if (Array.isArray(row)) {
+      for (var c = 0; c < row.length; c++) flat.push(row[c]);
+    } else {
+      flat.push(row);
+    }
+  }
+
+  for (var i = 0; i < flat.length; i++) {
+    var cell = flat[i];
     if (!cell || typeof cell !== "object" || Array.isArray(cell)) continue;
 
     var id = null;
@@ -585,7 +598,6 @@ function TRADE_indexMarkets_(tradeCol) {
 
   return out;
 }
-
 
 /* =======================
    TEMPLATES: build index by Type (NOT used for IO)
@@ -647,21 +659,30 @@ function TRADE_buildPolicyIndex_(data) {
   if (!Array.isArray(data["Торговая политика государств"])) data["Торговая политика государств"] = [];
   var col = data["Торговая политика государств"];
 
-  var idx = {
-    col: col,
-    byMarket: {} // marketId -> {rowIndex, obj}
-  };
-
+  // flatten 1D/2D
+  var flat = [];
   for (var r = 0; r < col.length; r++) {
-    var cell = col[r];
+    var row = col[r];
+    if (Array.isArray(row)) {
+      for (var c = 0; c < row.length; c++) flat.push({ r: r, c: c, cell: row[c] });
+    } else {
+      flat.push({ r: r, c: 0, cell: row });
+    }
+  }
+
+  var idx = { col: col, byMarket: {} };
+
+  for (var i = 0; i < flat.length; i++) {
+    var cell = flat[i].cell;
     if (!cell || typeof cell !== "object" || Array.isArray(cell)) continue;
+
     var m = cell["Рынок"] || cell["Идентификатор рынка"] || cell.РынокId || cell.id;
     if (!m) continue;
     var mid = String(m).trim();
     if (!mid) continue;
 
     TRADE_policyEnsureShape_(cell, mid);
-    idx.byMarket[mid] = { rowIndex: r, obj: cell };
+    idx.byMarket[mid] = { rowIndex: flat[i].r, colIndex: flat[i].c, obj: cell };
   }
 
   return idx;
@@ -684,8 +705,10 @@ function TRADE_policyEnsureShape_(obj, marketId) {
 
 function TRADE_policyEnsureAllMarketsHaveRows_(data, marketById, policyIdx) {
   var col = policyIdx.col;
+
   Object.keys(marketById).forEach(function (mid) {
     if (policyIdx.byMarket[mid]) return;
+
     var obj = {
       "Рынок": String(mid),
       "Тарифы": { "Импорт": { default: 0 }, "Экспорт": { default: 0 } },
@@ -693,8 +716,9 @@ function TRADE_policyEnsureAllMarketsHaveRows_(data, marketById, policyIdx) {
       "ПошлиныЗаХод": 0,
       "ПошлиныИтого": 0
     };
-    col.push(obj);
-    policyIdx.byMarket[mid] = { rowIndex: col.length - 1, obj: obj };
+
+    var r = TRADE_putPolicyRowToFirstFreeCell_(col, obj);
+    policyIdx.byMarket[mid] = { rowIndex: r, colIndex: 0, obj: obj };
   });
 }
 
@@ -767,40 +791,46 @@ function TRADE_getStateAccessMarketsPool_(data, marketById) {
   var root = data["Данные государства"];
   var flat = TRADE_flatten2D_(root);
 
-  var access = null;
+  var accessContainer = null; // ссылка на объект/массив внутри "Данные государства"
+
   for (var i = 0; i < flat.length; i++) {
     var o = flat[i];
     if (o && typeof o === "object" && !Array.isArray(o) && Object.prototype.hasOwnProperty.call(o, "РынкиДоступа")) {
-      access = o["РынкиДоступа"];
+      accessContainer = o["РынкиДоступа"];
       break;
     }
   }
 
-  if (!access) return { pool: pool };
+  if (!accessContainer) return { pool: pool, container: null };
 
-  if (Array.isArray(access)) {
-    for (var j = 0; j < access.length; j++) {
-      var it = access[j];
+  // Считываем в pool (рабочая копия)
+  if (Array.isArray(accessContainer)) {
+    for (var j = 0; j < accessContainer.length; j++) {
+      var it = accessContainer[j];
       if (!it || typeof it !== "object") continue;
       var mid = it["Рынок"] || it["Идентификатор рынка"] || it.РынокId || it.id;
       if (!mid) continue;
       mid = String(mid).trim();
       if (!mid || !marketById[mid]) continue;
+
       var cap = Number(it["ПропускнаяСпособность"] != null ? it["ПропускнаяСпособность"] : it["cap"]);
       if (!isFinite(cap) || cap <= 0) continue;
+
       pool[mid] = Math.floor(cap);
     }
-  } else if (access && typeof access === "object") {
-    Object.keys(access).forEach(function (mid) {
+  } else if (accessContainer && typeof accessContainer === "object") {
+    Object.keys(accessContainer).forEach(function (mid) {
       var m = String(mid).trim();
       if (!m || !marketById[m]) return;
-      var cap2 = Number(access[mid]);
+
+      var cap2 = Number(accessContainer[mid]);
       if (!isFinite(cap2) || cap2 <= 0) return;
+
       pool[m] = Math.floor(cap2);
     });
   }
 
-  return { pool: pool };
+  return { pool: pool, container: accessContainer };
 }
 
 
@@ -910,4 +940,67 @@ function TRADE_pushErr_(data, category, sub, msg) {
       { text: "└────────────────────────────────────────────────────────┘\n", color: "#E36A6A" }
     ]
   });
+}
+
+/* =======================
+   Хелперы
+   ======================= */
+function TRADE_putPolicyRowToFirstFreeCell_(col, obj) {
+  // Ищем пустое место
+  for (var r = 0; r < col.length; r++) {
+    var row = col[r];
+
+    // 2D
+    if (Array.isArray(row)) {
+      if (row.length === 0 || row[0] == null || row[0] === "") {
+        row[0] = obj;
+        return r;
+      }
+    } 
+    // 1D
+    else {
+      if (row == null || row === "") {
+        col[r] = obj;
+        return r;
+      }
+    }
+  }
+
+  // Если пустых нет — добавляем в конец
+  if (col.length > 0 && Array.isArray(col[0])) {
+    col.push([obj]);          // 2D
+    return col.length - 1;
+  } else {
+    col.push(obj);            // 1D
+    return col.length - 1;
+  }
+}
+
+function TRADE_writeBackAccessMarketsPool_(accessContainer, accessPool) {
+  if (!accessContainer) return;
+
+  // Массивный формат: [{Рынок:"...", ПропускнаяСпособность: N}, ...]
+  if (Array.isArray(accessContainer)) {
+    for (var i = 0; i < accessContainer.length; i++) {
+      var it = accessContainer[i];
+      if (!it || typeof it !== "object") continue;
+
+      var mid = it["Рынок"] || it["Идентификатор рынка"] || it.РынокId || it.id;
+      if (!mid) continue;
+      mid = String(mid).trim();
+      if (!mid) continue;
+
+      if (Object.prototype.hasOwnProperty.call(accessPool, mid)) {
+        it["ПропускнаяСпособность"] = Math.floor(Number(accessPool[mid]) || 0);
+      }
+    }
+    return;
+  }
+
+  // Объектный формат: {"РынокA": N, "РынокB": M}
+  if (typeof accessContainer === "object") {
+    Object.keys(accessPool || {}).forEach(function (mid) {
+      accessContainer[mid] = Math.floor(Number(accessPool[mid]) || 0);
+    });
+  }
 }
