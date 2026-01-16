@@ -39,6 +39,12 @@ function POPS_preparePopulationAgents_(data) {
       if (g.РасходЗаХод == null) g.РасходЗаХод = 0;
       if (g.Пошлины == null) g.Пошлины = 0;
       if (g.Удовлетворение == null) g.Удовлетворение = 1;
+      
+      // --- reset per-turn fields ---
+      g.РасходЗаХод = 0;
+      g.Пошлины = 0;
+      g.СубститутыЗаХод = {};
+      g.Нехватка = {};
     });
   });
 }
@@ -138,6 +144,8 @@ function POPS_appendPopulationBuyOrders_(ctx) {
       if (!g || !g.Провинция) return;
       var p = provByKey[String(g.Провинция)];
       if (!p) return;
+      
+      if (ctx.stateId != null && String(p.Владелец || "") !== String(ctx.stateId)) return;
 
       var marketId = TRADE_getMarketId_(p);
       if (!marketId) return;
@@ -191,6 +199,8 @@ function POPS_runSubstitutionSecondPass_(ctx) {
       if (!g || !g.Провинция) return;
       var p = provByKey[String(g.Провинция)];
       if (!p) return;
+      
+      if (ctx.stateId != null && String(p.Владелец || "") !== String(ctx.stateId)) return;
 
       var marketId = TRADE_getMarketId_(p);
       if (!marketId) return;
