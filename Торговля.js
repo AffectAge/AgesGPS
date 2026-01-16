@@ -119,6 +119,23 @@ var rep2 = POPS_runSubstitutionSecondPass_({
 // === D) POP: consume & satisfaction (ОБЯЗАТЕЛЬНО ПОСЛЕ ОБОИХ КЛИРИНГОВ) ===
 POPS_consumeAndScore_(data);
 
+POPS_updateSoLAndPolitics_({
+  data: data,
+  stateId: stateId,
+  provByKey: provByKey,
+  marketById: marketById,
+  policyIdx: policyIdx,
+  accessPool: accessPool
+});
+
+POPS_pushNewsBundle_(data, {
+  stateId: stateId,
+  provByKey: provByKey,
+  marketById: marketById,
+  policyIdx: policyIdx,
+  accessPool: accessPool
+});
+
 // merge a few counters so summary is correct
 rep.buyBoughtUnits        += rep2.buyBoughtUnits;
 rep.buyShortUnits         += rep2.buyShortUnits;
