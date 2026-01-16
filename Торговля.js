@@ -72,6 +72,9 @@ function TRADE_runBuildingCommerce(data) {
   // Reset per-building turn fields + remove мусор со склада (по b.Входы/b.Выходы)
   TRADE_resetBuildingsTurnFieldsAndCleanStock_(data, stateId, provByKey, tplByType);
 
+// === POP: prepare (ensure wallet/stock fields exist) ===
+POPS_preparePopulationAgents_(data);
+
   // Collect orders (по b.Входы/b.Выходы, без умножения на уровень)
   var orders = TRADE_collectOrders_({
     data: data,
@@ -81,6 +84,15 @@ function TRADE_runBuildingCommerce(data) {
     marketById: marketById,
     tpLeftProv: tpLeftProv
   });
+  
+  // === POP: append buy orders (1st pass, preferred goods) ===
+POPS_appendPopulationBuyOrders_({
+  data: data,
+  stateId: stateId,
+  provByKey: provByKey,
+  tpLeftProv: tpLeftProv,
+  orders: orders
+});
 
   // Clearing
   var rep = TRADE_clearInternalTrades_({
@@ -91,6 +103,31 @@ function TRADE_runBuildingCommerce(data) {
     tpLeftProv: tpLeftProv,
     accessPool: accessPool
   });
+  
+  // === POP: substitution 2nd pass ===
+var rep2 = POPS_runSubstitutionSecondPass_({
+  data: data,
+  stateId: stateId,
+  provByKey: provByKey,
+  marketById: marketById,
+  policyIdx: policyIdx,
+  tpLeftProv: tpLeftProv,
+  accessPool: accessPool,
+  sellOrders: orders.sell
+});
+
+// === D) POP: consume & satisfaction (ОБЯЗАТЕЛЬНО ПОСЛЕ ОБОИХ КЛИРИНГОВ) ===
+POPS_consumeAndScore_(data);
+
+// merge a few counters so summary is correct
+rep.buyBoughtUnits        += rep2.buyBoughtUnits;
+rep.buyShortUnits         += rep2.buyShortUnits;
+rep.buySpentMoney         += rep2.buySpentMoney;
+rep.sellSoldUnits         += rep2.sellSoldUnits;
+rep.sellEarnedMoney       += rep2.sellEarnedMoney;
+rep.provThroughputSpent   += rep2.provThroughputSpent;
+rep.accessThroughputSpent += rep2.accessThroughputSpent;
+rep.tariffsPaid           += rep2.tariffsPaid;
 
 TRADE_writeBackAccessMarketsPool_(accessRef.container, accessPool);
 
