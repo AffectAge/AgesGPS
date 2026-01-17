@@ -138,7 +138,7 @@ function ORDERS_processBuildOrders(data) {
       // чтобы следующие приказы учитывали лимиты очереди
       BUILDQUEUE_applyToContext_(QUEUE_CTX, buildType, provName, qty);
 
-      setText("✅ Приказ принят (" + conId + ")");
+      setText(ORDERS_formatResultText_("✅ Приказ принят (" + conId + ")", txt));
 
       ORDERS_pushBuildOrderNotice_(data, {
         ok: true,
@@ -150,7 +150,7 @@ function ORDERS_processBuildOrders(data) {
       });
 
     } else {
-      setText("⛔ Приказ отклонён");
+      setText(ORDERS_formatResultText_("⛔ Приказ отклонён", txt));
 
       ORDERS_pushBuildOrderNotice_(data, {
         ok: false,
@@ -602,4 +602,12 @@ function ORDERS_pushSimpleError_(data, code, message) {
     priority: 999,
     parts: parts
   });
+}
+
+function ORDERS_formatResultText_(statusText, rawText) {
+  rawText = String(rawText || "").trim();
+  // чтобы не раздувать ячейку, обрежем при необходимости
+  var MAX = 500;
+  if (rawText.length > MAX) rawText = rawText.slice(0, MAX - 1) + "…";
+  return statusText + " — " + rawText;
 }
