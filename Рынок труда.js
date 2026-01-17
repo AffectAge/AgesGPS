@@ -8,6 +8,26 @@
 /* =======================
    ВСПОМОГАТЕЛЬНЫЕ
    ======================= */
+   
+   function getPopQuantity_(pop) {
+  if (!pop || typeof pop !== "object") return 0;
+
+  var base = pop["Основные данные"];
+
+  // ожидаемый формат: массив объектов
+  if (Array.isArray(base)) {
+    for (var i = 0; i < base.length; i++) {
+      var row = base[i];
+      if (row && typeof row === "object" && typeof row.Количество === "number") {
+        return Math.max(0, Math.floor(row.Количество));
+      }
+    }
+    return 0;
+  }
+
+  // если внезапно пришло не массивом — считаем отсутствующим
+  return 0;
+}
 
 function normalizeToArray(value) {
   if (Array.isArray(value)) return value;
@@ -256,7 +276,6 @@ function buildOurProvincesMap(data, stateId) {
 /* =======================
    НАСЕЛЕНИЕ / POP
    ======================= */
-
 function calculatePopulationTotal(data, provinceName) {
   if (!Array.isArray(data.Население)) return 0;
 
@@ -267,14 +286,10 @@ function calculatePopulationTotal(data, provinceName) {
     var row = normalizeToArray(rows[i]);
     for (var j = 0; j < row.length; j++) {
       var pop = row[j];
-      if (
-        pop &&
-        typeof pop === "object" &&
-        pop.Провинция === provinceName &&
-        typeof pop.Количество === "number"
-      ) {
-        total += pop.Количество;
-      }
+      if (!pop || typeof pop !== "object") continue;
+      if (pop.Провинция !== provinceName) continue;
+
+      total += getPopQuantity_(pop);
     }
   }
 
