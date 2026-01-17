@@ -94,6 +94,18 @@ POPS_appendPopulationBuyOrders_({
   orders: orders
 });
 
+// === BUILD: append construction material buy orders (state as buyer) ===
+BUILD_appendConstructionBuyOrders_({
+  data: data,
+  stateId: stateId,
+  provByKey: provByKey,
+  marketById: marketById,
+  policyIdx: policyIdx,
+  tpLeftProv: tpLeftProv,
+  accessPool: accessPool,
+  orders: orders
+});
+
   // Clearing
   var rep = TRADE_clearInternalTrades_({
     data: data,
