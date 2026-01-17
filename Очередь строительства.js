@@ -40,7 +40,9 @@
    REGEX приказа
    ======================= */
 
-var ORDERS_RE_BUILD = /^\s*Построить\s*\[(.+?)\]\s*в\s*провинции\s*\[(.+?)\]\s*в\s*количестве\s*\[(\d+)\]\s*$/i;
+// Построить [Тип] в провинции [Провинция] в количестве [N] компании [Компания] корпорации [Корпорация]
+var ORDERS_RE_BUILD =
+  /^\s*Построить\s*\[\s*([^\]]+?)\s*\]\s*в\s*провинции\s*\[\s*([^\]]+?)\s*\]\s*в\s*количестве\s*\[\s*(\d+)\s*\]\s*компании\s*\[\s*([^\]]+?)\s*\]\s*корпорации\s*\[\s*([^\]]+?)\s*\]\s*$/i;
 
 /* =======================
    PUBLIC API
@@ -103,11 +105,42 @@ function ORDERS_processBuildOrders(data) {
     if (!m) return;
 
     var buildType = String(m[1] || "").trim();
-    var provName  = String(m[2] || "").trim();
-    var qty       = Math.max(1, parseInt(m[3], 10) || 1);
-
+var provName  = String(m[2] || "").trim();
+var qty       = Math.max(1, parseInt(m[3], 10) || 1);
+var company   = String(m[4] || "").trim();
+var corp      = String(m[5] || "").trim();
     var tpl  = TEMPLATES[buildType] || null;
     var prov = findProvince(provinces, provName) || null;
+    
+    if (!company || !corp) {
+  setText(ORDERS_formatResultText_("⛔ Приказ отклонён", txt));
+
+  var reasonsParts = [];
+  reasonsParts.push({
+    titleParts: makePlainTitleParts("Реквизиты владения"),
+    exp: (function () {
+      var p = [];
+      uiPrefix(p, indent(1), false);
+      uiText(p, "Ошибка: "); uiVal(p, "Не указана компания и/или корпорация"); uiNL(p);
+      uiPrefix(p, indent(1), false);
+      uiText(p, "Нужно: ... компании [Компания] корпорации [Корпорация]"); uiNL(p);
+      return { ok: false, parts: p };
+    })()
+  });
+
+  ORDERS_pushBuildOrderNotice_(data, {
+    ok: false,
+    id: null,
+    type: buildType,
+    province: provName,
+    qty: qty,
+    company: company,
+    corp: corp,
+    reasonsParts: reasonsParts
+  });
+
+  return; // прекращаем обработку этого приказа
+}
 
     var decision = BUILD_checkPlacementStrict_(data, {
       raw: txt,
@@ -131,6 +164,8 @@ function ORDERS_processBuildOrders(data) {
         Тип: buildType,
         Провинция: provName,
         Количество: qty,
+        Компания: company,
+        Корпорация: corp,
         Статус: "Ожидает",
         ХодСоздания: (typeof data.Ход === "number" ? data.Ход : null)
       });
@@ -146,6 +181,8 @@ function ORDERS_processBuildOrders(data) {
         type: buildType,
         province: provName,
         qty: qty,
+        company: company,
+  corp: corp,
         reasonsParts: []
       });
 
@@ -158,6 +195,8 @@ function ORDERS_processBuildOrders(data) {
         type: buildType,
         province: provName,
         qty: qty,
+        company: company,
+  corp: corp,
         reasonsParts: decision.reasonsParts || []
       });
     }
@@ -552,6 +591,8 @@ function ORDERS_pushBuildOrderNotice_(data, info) {
   uiRow(parts, "Здание", info.type, UI.VALUE, UI.BORDER);
   uiRow(parts, "Провинция", info.province, UI.VALUE, UI.BORDER);
   uiRow(parts, "Количество", info.qty, UI.VALUE, UI.BORDER);
+  uiRow(parts, "Компания", info.company || "—", UI.VALUE, UI.BORDER);
+uiRow(parts, "Корпорация", info.corp || "—", UI.VALUE, UI.BORDER);
 
   if (ok) {
     uiRow(parts, "Результат", "Принят", UI.OK, UI.BORDER);
