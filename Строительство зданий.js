@@ -482,6 +482,8 @@ function BUILD_ensureQueueItemShape_(it) {
   if (it.ПрогрессОчков == null) it.ПрогрессОчков = 0;
   if (it.НужноОчков == null) it.НужноОчков = 0;
   if (it._МатериалыЗарезервированы == null) it._МатериалыЗарезервированы = false;
+  if (it.Компания == null) it.Компания = "";
+if (it.Корпорация == null) it.Корпорация = "";
 }
 
 /* =======================
@@ -567,6 +569,8 @@ function BUILD_finishOneUnit_(data, it, templates) {
   var b = {
     Тип: type,
     Провинция: prov,
+    Компания: String(it.Компания || "").trim(),
+Корпорация: String(it.Корпорация || "").trim(),
     Активно: true,
 
     // для твоей торговли (без fallback)
@@ -581,7 +585,6 @@ function BUILD_finishOneUnit_(data, it, templates) {
     Пошлины: 0,
 
     ХодСтроительства: (typeof data.Ход === "number" ? data.Ход : null),
-    Источник: (it.Id ? String(it.Id) : "CONSTRUCTION")
   };
 
   if (!Array.isArray(data.Постройки)) data.Постройки = [];
