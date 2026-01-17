@@ -317,15 +317,35 @@ function BUILD_runConstructionPointsTurn(data) {
   // чистим временные
   provinces.forEach(function (p) { delete p._isOur; });
 
-  BUILD_pushTurnSummary_(data, {
-    points: totalPoints,
-    active: work.length,
-    finished: finished,
-    blocked: blocked,
-    waitingMat: waitingMat
-  });
+  // удалить завершённые проекты из очереди
+BUILD_cleanupFinishedQueueItems_(queue);
 
-  return data;
+// отчёт по провинциям (вариант 3)
+BUILD_pushActiveProjectsByProvince_(data, queue, {
+  maxProvinces: 12,
+  maxItemsPerProvince: 8,
+  maxTotalItems: 40
+});
+
+BUILD_pushTurnSummary_(data, {
+  points: totalPoints,
+  active: work.length,
+  finished: finished,
+  blocked: blocked,
+  waitingMat: waitingMat,
+  queueLeft: queue.length
+});
+
+BUILD_pushTurnSummary_(data, {
+  points: totalPoints,
+  active: work.length,
+  finished: finished,
+  blocked: blocked,
+  waitingMat: waitingMat,
+  queueLeft: queue.length
+});
+
+return data;
 }
 
 /* =======================
@@ -691,6 +711,7 @@ function BUILD_pushTurnSummary_(data, s) {
   uiRow(parts, "Завершено зданий", String(s.finished || 0), UI.VALUE, UI.BORDER);
   uiRow(parts, "Заблокировано", String(s.blocked || 0), UI.VALUE, UI.BORDER);
   uiRow(parts, "Ждёт материалов", String(s.waitingMat || 0), UI.VALUE, UI.BORDER);
+  uiRow(parts, "В очереди осталось", String(s.queueLeft || 0), UI.VALUE, UI.BORDER);
 
   uiBottom(parts, UI.BORDER);
 
@@ -716,4 +737,191 @@ function BUILD_pushSystemError_(data, code, message) {
     priority: 999,
     parts: parts
   });
+}
+
+function BUILD_cleanupFinishedQueueItems_(queue) {
+  if (!Array.isArray(queue) || !queue.length) return;
+
+  // удаляем завершённые и пустые
+  for (var i = queue.length - 1; i >= 0; i--) {
+    var it = queue[i];
+    if (!it || typeof it !== "object") { queue.splice(i, 1); continue; }
+
+    // нормализуем, чтобы Осталось было корректным
+    BUILD_ensureQueueItemShape_(it);
+
+    var done = (it.Статус === "Завершено") || (Number(it.Осталось) <= 0);
+    if (done) queue.splice(i, 1);
+  }
+}
+
+/* =========================================================
+   BUILD: UI — СТРОЯЩИЕСЯ ЗДАНИЯ ПО ПРОВИНЦИЯМ (ВАРИАНТ 3)
+   - 1 сообщение на ход
+   - группировка: Провинция -> список проектов
+   - показывает: Id, Тип, Кол-во/Построено/Осталось, Прогресс, Статус
+   ========================================================= */
+
+function BUILD_pushActiveProjectsByProvince_(data, queue, opts) {
+  if (!data || typeof data !== "object") return;
+  if (!Array.isArray(queue) || !queue.length) return;
+
+  opts = opts || {};
+  var maxProvinces = Math.max(1, Math.floor(Number(opts.maxProvinces) || 12));
+  var maxItemsPerProvince = Math.max(1, Math.floor(Number(opts.maxItemsPerProvince) || 8));
+  var maxTotalItems = Math.max(1, Math.floor(Number(opts.maxTotalItems) || 40));
+
+  // 1) Собрать активные элементы (не завершены, не пустые)
+  var active = [];
+  for (var i = 0; i < queue.length; i++) {
+    var it = queue[i];
+    if (!it || typeof it !== "object") continue;
+
+    // нормализация
+    if (typeof BUILD_ensureQueueItemShape_ === "function") BUILD_ensureQueueItemShape_(it);
+
+    var left = Math.floor(Number(it.Осталось) || 0);
+    if (it.Статус === "Завершено" || left <= 0) continue;
+
+    active.push(it);
+  }
+
+  if (!active.length) return;
+
+  // 2) Группировка по провинциям
+  var byProv = {};
+  for (var k = 0; k < active.length; k++) {
+    var it2 = active[k];
+    var prov = String(it2.Провинция || "—").trim() || "—";
+    if (!byProv[prov]) byProv[prov] = [];
+    byProv[prov].push(it2);
+  }
+
+  // 3) Сортировки: провинции по кол-ву проектов, внутри по % прогресса (desc)
+  var provKeys = Object.keys(byProv);
+  provKeys.sort(function (a, b) {
+    var da = byProv[a].length, db = byProv[b].length;
+    if (db !== da) return db - da;
+    return String(a).localeCompare(String(b));
+  });
+
+  for (var pk = 0; pk < provKeys.length; pk++) {
+    var list = byProv[provKeys[pk]];
+    list.sort(function (x, y) {
+      var px = BUILD_progressPct_(x), py = BUILD_progressPct_(y);
+      if (py !== px) return py - px;
+      return String(x.Id || "").localeCompare(String(y.Id || ""));
+    });
+  }
+
+  // 4) Рендер сообщения
+  var parts = [];
+  uiTitle(parts, "Строительство: по провинциям", UI.BORDER);
+  uiTop(parts, UI.BORDER);
+
+  uiRow(parts, "Активных строк", String(active.length), UI.VALUE, UI.BORDER);
+  uiRow(parts, "Провинций", String(provKeys.length), UI.VALUE, UI.BORDER);
+
+  uiBlank(parts, UI.BORDER);
+
+  var shownTotal = 0;
+  var shownProv = 0;
+
+  for (var p = 0; p < provKeys.length; p++) {
+    if (shownProv >= maxProvinces) break;
+    if (shownTotal >= maxTotalItems) break;
+
+    var provName = provKeys[p];
+    var items = byProv[provName] || [];
+    if (!items.length) continue;
+
+    // Заголовок провинции
+    // (делаем строкой, чтобы выглядело как секция)
+    uiText(parts, "┃ "); uiText(parts, String(provName), UI.LABEL); uiText(parts, ": ");
+    uiVal(parts, String(items.length)); uiNL(parts);
+
+    var shownHere = 0;
+    for (var q = 0; q < items.length; q++) {
+      if (shownHere >= maxItemsPerProvince) break;
+      if (shownTotal >= maxTotalItems) break;
+
+      var it3 = items[q];
+
+      var id = it3.Id || "—";
+      var type = it3.Тип || "—";
+
+      var qty = Math.floor(Number(it3.Количество) || 0);
+      var built = Math.floor(Number(it3.Построено) || 0);
+      var left = Math.floor(Number(it3.Осталось) || 0);
+
+      var need = Math.floor(Number(it3.НужноОчков) || 0);
+      var prog = Math.floor(Number(it3.ПрогрессОчков) || 0);
+      var pct = BUILD_progressPct_(it3);
+
+      var status = String(it3.Статус || "—");
+      var statusColor =
+        (status === "Строится") ? (UI.OK || UI.VALUE) :
+        (status === "ОжидаетМатериалы") ? UI.BAD :
+        (status === "Заблокировано") ? UI.BAD :
+        UI.VALUE;
+
+      // Строка проекта (одна строка, компактная)
+      // ┃  ➔ Тип (ID) | Кол-во 3 | Постр 2 | Ост 1 | 45/100 (45%) | Статус
+      uiPrefix(parts, indent(1), false);
+      uiText(parts, "➔ ");
+      uiText(parts, String(type), UI.VALUE);
+      uiText(parts, " ("); uiText(parts, String(id), UI.DIM); uiText(parts, ") | ");
+
+      uiText(parts, "Кол-во "); uiVal(parts, String(qty)); uiText(parts, " | ");
+      uiText(parts, "Постр "); uiVal(parts, String(built)); uiText(parts, " | ");
+      uiText(parts, "Ост "); uiVal(parts, String(left)); uiText(parts, " | ");
+
+      uiText(parts, "Прог "); uiVal(parts, String(prog)); uiText(parts, "/"); uiVal(parts, String(need));
+      uiText(parts, " ("); uiVal(parts, String(pct)); uiText(parts, "%) | ");
+
+      uiText(parts, "Статус "); uiText(parts, status, statusColor);
+
+      uiNL(parts);
+
+      shownHere++;
+      shownTotal++;
+    }
+
+    // Если обрезали внутри провинции — сообщим
+    if (items.length > shownHere) {
+      uiPrefix(parts, indent(2), false);
+      uiText(parts, "… ещё "); uiVal(parts, String(items.length - shownHere));
+      uiText(parts, " проект(ов) в этой провинции"); uiNL(parts);
+    }
+
+    uiBlank(parts, UI.BORDER);
+    shownProv++;
+  }
+
+  // Если обрезали провинции — сообщим
+  if (provKeys.length > shownProv) {
+    uiRow(parts, "Обрезка", "Провинций скрыто: " + String(provKeys.length - shownProv), UI.VALUE, UI.BORDER);
+  }
+  if (shownTotal < active.length) {
+    uiRow(parts, "Обрезка", "Проектов скрыто: " + String(active.length - shownTotal), UI.VALUE, UI.BORDER);
+  }
+
+  uiBottom(parts, UI.BORDER);
+
+  pushBoxNotice(data, {
+    category: BUILD_CFG.CATEGORY,
+    sub: "Строящиеся здания (по провинциям)",
+    priority: 170,
+    parts: parts
+  });
+}
+
+function BUILD_progressPct_(it) {
+  var need = Math.floor(Number(it && it.НужноОчков) || 0);
+  var prog = Math.floor(Number(it && it.ПрогрессОчков) || 0);
+  if (need <= 0) return 0;
+  var pct = Math.floor((prog * 100) / need);
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  return pct;
 }
