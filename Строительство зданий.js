@@ -31,9 +31,15 @@ function BUILD_appendConstructionBuyOrders_(ctx) {
   var queue = qCell.ОчередьСтроительства;
   if (!Array.isArray(queue) || !queue.length) return;
 
-  // казна (покупатель)
-  var treasury = BUILD_getOrCreateTreasury_(data);
-  BUILD_ensureTradeLikeBuyerShape_(treasury);
+ var treasury = BUILD_getOrCreateTreasury_(data);
+if (!treasury) {
+  if (typeof BUILD_pushSystemError_ === "function") {
+    BUILD_pushSystemError_(data, "TREASURY_NO_SPACE",
+      "Не удалось создать/найти казну: нет свободной ячейки в data['Данные государства'], а добавление строк запрещено.");
+  }
+  return;
+}
+BUILD_ensureTradeLikeBuyerShape_(treasury);
 
   // шаблоны
   var TEMPLATES = BUILD_indexTemplates_(data);
@@ -127,9 +133,13 @@ function BUILD_runConstructionPointsTurn(data) {
   var queue = qCell.ОчередьСтроительства;
   if (!Array.isArray(queue) || !queue.length) return data;
 
-  // казна (очки + склад)
-  var treasury = BUILD_getOrCreateTreasury_(data);
-  BUILD_ensureTreasuryShape_(treasury);
+ var treasury = BUILD_getOrCreateTreasury_(data);
+if (!treasury) {
+  BUILD_pushSystemError_(data, "TREASURY_NO_SPACE",
+    "Не удалось создать/найти казну: нет свободной ячейки в data['Данные государства'], а добавление строк запрещено.");
+  return data;
+}
+BUILD_ensureTreasuryShape_(treasury);
 
   var totalPoints = Math.floor(Number(treasury.ОчковСтроительства) || 0);
   if (totalPoints <= 0) {
@@ -336,15 +346,6 @@ BUILD_pushTurnSummary_(data, {
   queueLeft: queue.length
 });
 
-BUILD_pushTurnSummary_(data, {
-  points: totalPoints,
-  active: work.length,
-  finished: finished,
-  blocked: blocked,
-  waitingMat: waitingMat,
-  queueLeft: queue.length
-});
-
 return data;
 }
 
@@ -412,7 +413,7 @@ function BUILD_getOrCreateTreasury_(data) {
     }
   }
 
-  // 2) иначе создаём в первой свободной ячейке
+  // 2) иначе создаём в первой свободной ячейке (НО не добавляем строки)
   for (var r = 0; r < rows.length; r++) {
     var row2 = normalizeToArray(rows[r]); rows[r] = row2;
     for (var c = 0; c < row2.length; c++) {
@@ -424,10 +425,7 @@ function BUILD_getOrCreateTreasury_(data) {
     }
   }
 
-  // 3) если нет пустых — добавим строку
-  var createdLast = { Деньги: 0, Бюджет: 0, Склад: {}, ОчковСтроительства: 0 };
-  data["Данные государства"].push([createdLast]);
-  return createdLast;
+  return null;
 }
 
 function BUILD_ensureTreasuryShape_(t) {
@@ -588,9 +586,26 @@ function BUILD_finishOneUnit_(data, it, templates) {
   };
 
   if (!Array.isArray(data.Постройки)) data.Постройки = [];
-  BUILD_putBuildingWithCellCap_(data.Постройки, b, BUILD_CFG.CELL_BUILDINGS_CAP);
-
-  return { ok: true, building: b, reasonsParts: [] };
+  var placed = BUILD_putBuildingWithCellCap_(data.Постройки, b, BUILD_CFG.CELL_BUILDINGS_CAP);
+if (!placed) {
+  return {
+    ok: false,
+    reasonsParts: [{
+      titleParts: makePlainTitleParts("Размещение здания"),
+      exp: (function () {
+        var p = [];
+        uiPrefix(p, indent(1), false);
+        uiText(p, "Нет свободной ячейки с доступным лимитом (cap=");
+uiVal(p, String(BUILD_CFG.CELL_BUILDINGS_CAP));
+uiText(p, ").");
+uiNL(p);
+        uiNL(p);
+        return { ok: false, parts: p };
+      })()
+    }]
+  };
+}
+return { ok: true, building: b };
 }
 
 function BUILD_copyPlainObject_(o) {
@@ -606,61 +621,27 @@ function BUILD_copyPlainObject_(o) {
 
 function BUILD_putBuildingWithCellCap_(col, b, cap) {
   cap = Math.max(1, Math.floor(Number(cap) || 10));
+  if (!Array.isArray(col)) return false;
 
-  // 2D
-  if (Array.isArray(col) && col.length && Array.isArray(col[0])) {
-    for (var r = 0; r < col.length; r++) {
-      var row = col[r];
-      if (!Array.isArray(row)) { col[r] = []; row = col[r]; }
+  for (var i = 0; i < col.length; i++) {
+    var cell = col[i];
 
-      for (var c = 0; c < row.length; c++) {
-        var cell = row[c];
+    // ✅ пустая ячейка -> инициализируем как []
+    if (cell === "" || cell == null) {
+      col[i] = [];
+      cell = col[i];
+    }
 
-        // empty
-        if (cell === "" || cell == null) {
-          row[c] = [b];
-          return;
-        }
-
-        // array cell (preferred)
-        if (Array.isArray(cell)) {
-          if (cell.length < cap) { cell.push(b); return; }
-          continue;
-        }
-
-        // single object -> convert to array if possible
-        if (typeof cell === "object") {
-          if (cap >= 2) { row[c] = [cell, b]; return; }
-        }
+    // ✅ ячейка должна быть массивом зданий
+    if (Array.isArray(cell)) {
+      if (cell.length < cap) {
+        cell.push(b);
+        return true;
       }
     }
-
-    // no space -> add new row
-    col.push([[b]]);
-    return;
   }
 
-  // 1D
-  for (var i = 0; i < col.length; i++) {
-    var cell1 = col[i];
-
-    if (cell1 === "" || cell1 == null) {
-      col[i] = [b];
-      return;
-    }
-
-    if (Array.isArray(cell1)) {
-      if (cell1.length < cap) { cell1.push(b); return; }
-      continue;
-    }
-
-    if (typeof cell1 === "object") {
-      if (cap >= 2) { col[i] = [cell1, b]; return; }
-    }
-  }
-
-  // no space -> append
-  col.push([b]);
+  return false;
 }
 
 /* =======================
