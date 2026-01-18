@@ -1,18 +1,74 @@
 /* =========================================================
-   TURNS: Gate + Commit (для runGame, без глобального data)
+   TURNS: Gate + Commit (для runGame) + МИРОВОЙ ХОД В "Данные мира"
+   Google Apps Script (V8)
+
+   ИСТОЧНИК ИСТИНЫ:
+   ✅ data["Данные мира"] содержит {"Ход": N}
+
+   ПО СТРАНАМ:
+   ✅ data["Последний ход"][i] — последний завершённый мировой ход для страны i
+   ✅ если "Последний ход" пусто/нет -> дефолт = (ХодМира - 1) => страна ДОЛЖНА сходить
+   ✅ если "Активность стран" пусто/нет -> true
+   ✅ игнорируем строки, где нет ID или Названия
+
+   Требования:
+   - data["ID Страны"]    = [1,2,3,...]
+   - data["Список стран"] = ["Франция","Германия",...]
+   - data["Данные мира"]  = JSON (объект/массив объектов/строка JSON/2D) или пусто
+
+   Зависимости (должны быть в проекте):
+   - safeParseJSONCell_(v)
+   - flattenCells_(value)
+   - findFieldObj_(arr, key)
+   - getFieldValue_(arr, key)
+   - setFieldValue_(arr, key, value)
+   - getStateDataArray_(data)  // для чтения "Идентификатор государства"
    ========================================================= */
 
-// --- ENSURE: общий ход + массивы стран ---
-/* =======================
-   ENSURE (V3): общий ход + списки стран
-   - по дефолту LastTurn = (Ход - 1)  ✅ страна должна сходить
-   - по дефолту Active = true
-   - игнорируем строки без ID или без Названия
-   ======================= */
 
 /* =======================
-   WORLD TURN SOURCE (robust)
-   1) data["Данные государства"]."Ход" (если есть)
+   NUM HELPERS
+   ======================= */
+
+function TURN_numOrNaN_(v) {
+  if (v === "" || v == null) return NaN; // пустое = нет значения
+  var n = Number(v);
+  return isFinite(n) ? n : NaN;
+}
+
+
+/* =======================
+   WORLD JSON ARRAY: "Данные мира"
+   ======================= */
+
+function getWorldDataArray_(data) {
+  var raw = data["Данные мира"];
+  raw = safeParseJSONCell_(raw);
+
+  // массив (1D/2D)
+  if (Array.isArray(raw)) {
+    var flat = flattenCells_(raw).filter(function (x) {
+      return x && typeof x === "object" && !Array.isArray(x);
+    });
+    data["Данные мира"] = flat;
+    return data["Данные мира"];
+  }
+
+  // одиночный объект
+  if (raw && typeof raw === "object") {
+    data["Данные мира"] = [raw];
+    return data["Данные мира"];
+  }
+
+  // пусто/невалидно
+  data["Данные мира"] = [];
+  return data["Данные мира"];
+}
+
+
+/* =======================
+   WORLD TURN SOURCE
+   1) "Данные мира"."Ход"
    2) иначе: max(Последний ход активных) + 1
    3) иначе: 1
    ======================= */
@@ -20,10 +76,10 @@
 function TURN_getWorldTurn_(data) {
   if (!data || typeof data !== "object") return 1;
 
-  // 1) пробуем из "Данные государства"
-  var stateArr = getStateDataArray_(data);
-  var t = Math.floor(Number(getFieldValue_(stateArr, "Ход")) || 0);
-  if (t > 0) return t;
+  // 1) из "Данные мира"
+  var worldArr = getWorldDataArray_(data);
+  var t = Math.floor(TURN_numOrNaN_(getFieldValue_(worldArr, "Ход")));
+  if (isFinite(t) && t > 0) return t;
 
   // 2) иначе выводим из массива последних ходов
   var idsRaw   = Array.isArray(data["ID Страны"]) ? data["ID Страны"] : [];
@@ -36,12 +92,10 @@ function TURN_getWorldTurn_(data) {
   var maxLast = -1;
 
   for (var i = 0; i < idsRaw.length; i++) {
-    // игнорим строки без ID/имени (как ты требовал)
     var idStr = (idsRaw[i] == null) ? "" : String(idsRaw[i]).trim();
     var nmStr = (namesRaw[i] == null) ? "" : String(namesRaw[i]).trim();
     if (idStr === "" || nmStr === "") continue;
 
-    // активность: по дефолту true
     var a = (i < actRaw.length) ? actRaw[i] : null;
     a = (a === false) ? false : true;
     if (a === false) continue;
@@ -52,7 +106,6 @@ function TURN_getWorldTurn_(data) {
     if (lt > maxLast) maxLast = lt;
   }
 
-  // если нашли хоть что-то
   if (maxLast >= 0) return maxLast + 1;
 
   return 1;
@@ -60,39 +113,34 @@ function TURN_getWorldTurn_(data) {
 
 
 /* =======================
-   ENSURE (V4): использует TURN_getWorldTurn_
-   - по дефолту LastTurn = (Ход - 1) ✅ страна должна сходить
-   - по дефолту Active = true
-   - игнорирует строки без ID/Название
+   ENSURE: мировой ход + списки стран
+   - LastTurn default = worldTurn - 1 (страна должна сходить)
+   - Active default = true
+   - игнорировать строки без ID/Название
    ======================= */
 
 function TURN_ensureWorldAndCountryTurns_(data) {
   if (!data || typeof data !== "object") return;
 
-  // ✅ берём общий ход корректно
-  var turn = TURN_getWorldTurn_(data);
+  var worldTurn = TURN_getWorldTurn_(data);
 
-  // фиксируем/публикуем его в "Данные государства" (чтобы дальше всё работало одинаково)
-  var stateArr = getStateDataArray_(data);
-  setFieldValue_(stateArr, "Ход", turn);
+  // гарантируем "Ход" в "Данные мира"
+  var worldArr = getWorldDataArray_(data);
+  setFieldValue_(worldArr, "Ход", worldTurn);
 
-  // нормализация стран (твоя V3-логика)
-  TURN_normalizeCountryLists_(data, turn);
+  // нормализация массивов стран
+  TURN_normalizeCountryLists_(data, worldTurn);
 }
+
 
 /* =======================
    PRIVATE: normalize/align country arrays
-   - filters out rows with missing ID or Name
-   - aligns: ID Страны / Список стран / Последний ход / Активность стран
-   - default LastTurn = worldTurn - 1  ✅ must act
-   - default Active = true
    ======================= */
 
 function TURN_normalizeCountryLists_(data, worldTurn) {
   var idsRaw   = Array.isArray(data["ID Страны"]) ? data["ID Страны"] : [];
   var namesRaw = Array.isArray(data["Список стран"]) ? data["Список стран"] : [];
 
-  // если списки пустые/разной длины — ничего не делаем
   if (!idsRaw.length || idsRaw.length !== namesRaw.length) return;
 
   var lastRaw = Array.isArray(data["Последний ход"]) ? data["Последний ход"] : [];
@@ -107,21 +155,19 @@ function TURN_normalizeCountryLists_(data, worldTurn) {
     var idVal = idsRaw[i];
     var nameVal = namesRaw[i];
 
-    // --- ID: должен существовать и не быть пустым ---
     var idStr = (idVal == null) ? "" : String(idVal).trim();
     if (idStr === "") continue;
 
-    // --- Name: должен существовать и не быть пустым ---
     var nameStr = (nameVal == null) ? "" : String(nameVal).trim();
     if (nameStr === "") continue;
 
-    // --- LastTurn: по дефолту = worldTurn - 1 (страна ДОЛЖНА сходить) ---
+    // LastTurn: пустое/нет -> worldTurn - 1
     var ltRaw = (i < lastRaw.length) ? lastRaw[i] : null;
     var lt = Math.floor(TURN_numOrNaN_(ltRaw));
-if (!isFinite(lt)) lt = worldTurn - 1;   // ✅ теперь сработает и для ""
+    if (!isFinite(lt)) lt = worldTurn - 1;
     if (lt < 0) lt = 0;
 
-    // --- Activity: по дефолту true ---
+    // Activity: пустое/нет -> true
     var aRaw = (i < actRaw.length) ? actRaw[i] : null;
     var a = (aRaw === false) ? false : true;
 
@@ -137,6 +183,11 @@ if (!isFinite(lt)) lt = worldTurn - 1;   // ✅ теперь сработает 
   data["Активность стран"] = act;
 }
 
+
+/* =======================
+   INDEX: страна по ID
+   ======================= */
+
 function TURN_findCountryIndexById_(data, countryId) {
   var ids = Array.isArray(data["ID Страны"]) ? data["ID Страны"] : [];
   var sid = String(countryId).trim();
@@ -146,12 +197,18 @@ function TURN_findCountryIndexById_(data, countryId) {
   return -1;
 }
 
+
+/* =======================
+   CAN ACT: проверка хода страны
+   ======================= */
+
 function TURN_canCountryAct_(data, countryId) {
   TURN_ensureWorldAndCountryTurns_(data);
 
-  var stateArr = getStateDataArray_(data);
-  var turn = Math.floor(TURN_numOrNaN_(getFieldValue_(stateArr, "Ход")));
-if (!isFinite(turn) || turn <= 0) turn = 1;
+  var worldArr = getWorldDataArray_(data);
+  var turn = Math.floor(TURN_numOrNaN_(getFieldValue_(worldArr, "Ход")));
+  if (!isFinite(turn) || turn <= 0) turn = 1;
+
   var idx = TURN_findCountryIndexById_(data, countryId);
   if (idx < 0) return { ok: false, reason: "страна не найдена", turn: turn };
 
@@ -161,7 +218,8 @@ if (!isFinite(turn) || turn <= 0) turn = 1;
   }
 
   var lastArr = data["Последний ход"];
-  var last = Math.floor(Number(lastArr[idx]) || 0);
+  var last = Math.floor(TURN_numOrNaN_(lastArr[idx]));
+  if (!isFinite(last)) last = turn - 1;
 
   if (last >= turn) {
     return { ok: false, reason: "страна уже сделала ход " + turn, idx: idx, turn: turn, last: last };
@@ -169,6 +227,11 @@ if (!isFinite(turn) || turn <= 0) turn = 1;
 
   return { ok: true, idx: idx, turn: turn, last: last };
 }
+
+
+/* =======================
+   COMMIT: страна завершила текущий ход
+   ======================= */
 
 function TURN_markCountryDone_(data, countryId) {
   var chk = TURN_canCountryAct_(data, countryId);
@@ -178,12 +241,17 @@ function TURN_markCountryDone_(data, countryId) {
   return { ok: true, idx: chk.idx, turn: chk.turn };
 }
 
+
+/* =======================
+   ADVANCE: если все активные сделали ход -> ХодМира++
+   ======================= */
+
 function TURN_tryAdvanceWorldTurn_(data) {
   TURN_ensureWorldAndCountryTurns_(data);
 
-  var stateArr = getStateDataArray_(data);
-  var turn = Math.floor(TURN_numOrNaN_(getFieldValue_(stateArr, "Ход")));
-if (!isFinite(turn) || turn <= 0) turn = 1;
+  var worldArr = getWorldDataArray_(data);
+  var turn = Math.floor(TURN_numOrNaN_(getFieldValue_(worldArr, "Ход")));
+  if (!isFinite(turn) || turn <= 0) turn = 1;
 
   var ids  = Array.isArray(data["ID Страны"]) ? data["ID Страны"] : [];
   var names = Array.isArray(data["Список стран"]) ? data["Список стран"] : [];
@@ -198,11 +266,14 @@ if (!isFinite(turn) || turn <= 0) turn = 1;
 
   for (var i = 0; i < ids.length; i++) {
     if (actArr[i] === false) continue;
-    var lt = Math.floor(Number(lastArr[i]) || 0);
+
+    var lt = Math.floor(TURN_numOrNaN_(lastArr[i]));
+    if (!isFinite(lt)) lt = turn - 1;
+
     if (lt < turn) return { advanced: false, reason: "Не все активные страны завершили ход " + turn };
   }
 
-  setFieldValue_(stateArr, "Ход", turn + 1);
+  setFieldValue_(worldArr, "Ход", turn + 1);
 
   if (!Array.isArray(data.Новости)) data.Новости = [];
   data.Новости.push("🌍 Общий ход повышен: " + turn + " → " + (turn + 1));
@@ -210,12 +281,17 @@ if (!isFinite(turn) || turn <= 0) turn = 1;
   return { advanced: true, from: turn, to: turn + 1 };
 }
 
+
+/* =======================
+   SUMMARY
+   ======================= */
+
 function TURN_buildTurnStatusSummary_(data) {
   TURN_ensureWorldAndCountryTurns_(data);
 
-  var stateArr = getStateDataArray_(data);
-  var turn = Math.floor(TURN_numOrNaN_(getFieldValue_(stateArr, "Ход")));
-if (!isFinite(turn) || turn <= 0) turn = 1;
+  var worldArr = getWorldDataArray_(data);
+  var turn = Math.floor(TURN_numOrNaN_(getFieldValue_(worldArr, "Ход")));
+  if (!isFinite(turn) || turn <= 0) turn = 1;
 
   var ids   = Array.isArray(data["ID Страны"]) ? data["ID Страны"] : [];
   var names = Array.isArray(data["Список стран"]) ? data["Список стран"] : [];
@@ -231,7 +307,9 @@ if (!isFinite(turn) || turn <= 0) turn = 1;
 
     if (actArr[i] === false) { off.push(name); continue; }
 
-    var lt = Math.floor(Number(lastArr[i]) || 0);
+    var lt = Math.floor(TURN_numOrNaN_(lastArr[i]));
+    if (!isFinite(lt)) lt = turn - 1;
+
     if (lt >= turn) done.push(name);
     else todo.push(name);
   }
@@ -255,6 +333,7 @@ function TURN_pushTurnSummaryNews_(data) {
   data.Новости.push("🕒 " + s.text);
 }
 
+
 /* =======================
    RUNGAME STEPS
    ======================= */
@@ -275,11 +354,10 @@ function TURN_gateCountryTurn(data, ctx) {
   if (!chk.ok) {
     if (!Array.isArray(data.Новости)) data.Новости = [];
     data.Новости.push("⛔ Ход отклонён: " + chk.reason);
-    ctx.__abort = true; // ✅ остановить остальные модули
+    ctx.__abort = true;
     return;
   }
 
-  // сохраним в ctx, чтобы не пересчитывать
   ctx.__turn_countryId = countryId;
   ctx.__turn_turn = chk.turn;
   ctx.__turn_idx = chk.idx;
@@ -294,23 +372,11 @@ function TURN_commitAndAdvance(data, ctx) {
 
   var countryId = ctx.__turn_countryId;
   if (!countryId) {
-    // на случай если не было gate (или ID пустой)
     var stateArr = getStateDataArray_(data);
     countryId = getFieldValue_(stateArr, "Идентификатор государства");
   }
 
-  // commit
   TURN_markCountryDone_(data, countryId);
-
-  // advance if all active done
   TURN_tryAdvanceWorldTurn_(data);
-
-  // summary
   TURN_pushTurnSummaryNews_(data);
-}
-
-function TURN_numOrNaN_(v) {
-  if (v === "" || v == null) return NaN;     // ✅ пустое = нет значения
-  var n = Number(v);
-  return isFinite(n) ? n : NaN;
 }
