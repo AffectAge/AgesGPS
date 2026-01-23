@@ -540,76 +540,62 @@ function PROD_applyStateOutputs_(b, data, baseStateOut, levelMult, stepEff) {
   return { applied: applied };
 }
 
+/* =========================================================
+   PROD: STATE INDICATORS CELL (как ORDERS очередь)
+   - Ищем/создаём ОТДЕЛЬНУЮ свободную ячейку в "Данные государства"
+   - Без привязки к "Идентификатор государства"
+   - Формат ячейки: { "Показатели государства": { ... } }
+   ========================================================= */
+
 function PROD_getOrCreateStateIndicators_(data) {
   var colName = "Данные государства";
   var fieldName = "Показатели государства";
 
-  var col = (typeof normalizeToArray === "function")
+  // гарантируем массив-колонку
+  var rows = (typeof normalizeToArray === "function")
     ? normalizeToArray(data[colName])
     : (Array.isArray(data[colName]) ? data[colName] : []);
 
-  if (!Array.isArray(col)) col = [];
-  data[colName] = col;
+  if (!Array.isArray(data[colName])) data[colName] = rows;
 
-  // 1) если уже есть "Показатели государства" — используем (это НЕ "другие ключи", это целевой)
-  for (var i = 0; i < col.length; i++) {
-    var cell = col[i];
-    if (cell && typeof cell === "object" && !Array.isArray(cell)) {
-      var box = cell[fieldName];
-      if (box && typeof box === "object" && !Array.isArray(box)) return box;
+  // 1) найдём существующую ячейку с Показатели государства
+  for (var i = 0; i < rows.length; i++) {
+    var row = (typeof normalizeToArray === "function")
+      ? normalizeToArray(rows[i])
+      : (Array.isArray(rows[i]) ? rows[i] : [rows[i]]);
+    rows[i] = row;
+
+    for (var j = 0; j < row.length; j++) {
+      var cell = row[j];
+      if (!cell || typeof cell !== "object" || Array.isArray(cell)) continue;
+
+      if (cell[fieldName] && typeof cell[fieldName] === "object" && !Array.isArray(cell[fieldName])) {
+        return cell[fieldName];
+      }
     }
   }
 
-  // 2) ищем первый свободный слот (ТОЛЬКО по "пустоте" ячейки)
-  for (var j = 0; j < col.length; j++) {
-    var v = col[j];
+  // 2) найдём свободную ячейку (как в ORDERS)
+  for (var r = 0; r < rows.length; r++) {
+    var row2 = (typeof normalizeToArray === "function")
+      ? normalizeToArray(rows[r])
+      : (Array.isArray(rows[r]) ? rows[r] : [rows[r]]);
+    rows[r] = row2;
 
-    var isFree =
-      (v == null) ||
-      (typeof v === "string" && v.trim() === "") ||
-      (Array.isArray(v) && v.length === 0) ||
-      (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0);
-
-    if (isFree) {
-      col[j] = {};
-      col[j][fieldName] = {};      // <-- вот тот самый JSON в ячейке
-      return col[j][fieldName];
+    for (var c = 0; c < row2.length; c++) {
+      var v = row2[c];
+      if (v === "" || v === null || v === undefined) {
+        var created = {};
+        created[fieldName] = {};
+        row2[c] = created;
+        return created[fieldName];
+      }
     }
   }
 
-  // 3) места нет — предупреждение, без добавления новых ячеек/строк
-  PROD_warnNoStateIndicatorsSlot_(data);
-  return null;
-}
-
-function PROD_warnNoStateIndicatorsSlot_(data) {
-  var msg = "Нет свободной ячейки для 'Показатели государства' в 'Данные государства'. Начисление пропущено.";
-
-  // если есть твоя система новостей
-  if (typeof pushBoxNotice === "function" &&
-      typeof uiTitle === "function" &&
-      typeof uiTop === "function" &&
-      typeof uiRow === "function" &&
-      typeof uiBottom === "function" &&
-      typeof UI === "object") {
-
-    var parts = [];
-    var bc = UI.BAD || "#E36A6A";
-
-    uiTitle(parts, "Производство: предупреждение", bc);
-    uiTop(parts, bc);
-    uiRow(parts, "Причина", msg, UI.VALUE, bc);
-    uiBottom(parts, bc);
-
-    pushBoxNotice(data, {
-      category: "Система",
-      sub: "Производство",
-      priority: 300,
-      parts: parts
-    });
-
-  } else {
-    // тихий fallback
-    console.warn("⚠️ PROD:", msg);
-  }
+  // 3) если свободных нет — добавим строку
+  var createdLast = {};
+  createdLast[fieldName] = {};
+  data[colName].push([createdLast]);
+  return createdLast[fieldName];
 }
