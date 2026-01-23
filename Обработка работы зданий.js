@@ -140,6 +140,8 @@ function PROD_runTurn(data) {
       var baseIn  = PROD_pickFlowObject_(b.Входы,  tpl && tpl.Входы);
       var baseOut = PROD_pickFlowObject_(b.Выходы, tpl && tpl.Выходы);
       var baseExt = PROD_pickFlowObject_(b.Добыча, tpl && tpl.Добыча);
+      var baseProvOut  = PROD_pickFlowObject_(b.ВыходыПровинции,  tpl && tpl.ВыходыПровинции);
+var baseStateOut = PROD_pickFlowObject_(b.ВыходыГосударство, tpl && tpl.ВыходыГосударство);
 
       // уровень
       var level = PROD_getLevel_(b);
@@ -160,6 +162,9 @@ function PROD_runTurn(data) {
 
       // 3) выходы
       var prod = PROD_produceOutputs_(b, baseOut, levelMult, stepEff);
+      
+      var provOut = PROD_applyProvinceOutputs_(b, prov, baseProvOut, levelMult, stepEff);
+var stOut   = PROD_applyStateOutputs_(b, data, baseStateOut, levelMult, stepEff);
 
       // запись нехватки (до CAP)
       b.Нехватка = cons.missing;
@@ -179,6 +184,8 @@ function PROD_runTurn(data) {
 
         b._Extracted = ext.extracted;
         b._Produced = prod.produced;
+        b._ProducedProvince = provOut.applied;
+  b._ProducedState = stOut.applied;
       }
 
       processed++;
@@ -473,4 +480,136 @@ function PROD_pushSystem_(data, code, message) {
     priority: 999,
     parts: parts
   });
+}
+
+function PROD_applyProvinceOutputs_(b, prov, baseProvOut, levelMult, stepEff) {
+  var applied = {};
+
+  if (!prov || typeof prov !== "object") return { applied: applied };
+  if (!baseProvOut || typeof baseProvOut !== "object" || Array.isArray(baseProvOut)) {
+    return { applied: applied };
+  }
+
+  var keys = Object.keys(baseProvOut);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var base = Math.floor(Number(baseProvOut[k]) || 0);
+    if (base <= 0) continue;
+
+    var qty = Math.floor(base * levelMult * stepEff);
+    if (qty <= 0) continue;
+
+    // Пишем прямо в prov[k]
+    var cur = Number(prov[k]);
+    if (!isFinite(cur)) cur = 0;
+    prov[k] = cur + qty;
+
+    applied[k] = qty;
+  }
+
+  return { applied: applied };
+}
+
+function PROD_applyStateOutputs_(b, data, baseStateOut, levelMult, stepEff) {
+  var applied = {};
+
+  if (!data || typeof data !== "object") return { applied: applied };
+  if (!baseStateOut || typeof baseStateOut !== "object" || Array.isArray(baseStateOut)) {
+    return { applied: applied };
+  }
+
+  var st = PROD_getOrCreateStateIndicators_(data); // <- гарантирует объект показателей
+  if (!st) return { applied: applied };
+
+  var keys = Object.keys(baseStateOut);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var base = Math.floor(Number(baseStateOut[k]) || 0);
+    if (base <= 0) continue;
+
+    var qty = Math.floor(base * levelMult * stepEff);
+    if (qty <= 0) continue;
+
+    var cur = Number(st[k]);
+    if (!isFinite(cur)) cur = 0;
+    st[k] = cur + qty;
+
+    applied[k] = qty;
+  }
+
+  return { applied: applied };
+}
+
+function PROD_getOrCreateStateIndicators_(data) {
+  var colName = "Данные государства";
+  var fieldName = "Показатели государства";
+
+  var col = (typeof normalizeToArray === "function")
+    ? normalizeToArray(data[colName])
+    : (Array.isArray(data[colName]) ? data[colName] : []);
+
+  if (!Array.isArray(col)) col = [];
+  data[colName] = col;
+
+  // 1) если уже есть "Показатели государства" — используем (это НЕ "другие ключи", это целевой)
+  for (var i = 0; i < col.length; i++) {
+    var cell = col[i];
+    if (cell && typeof cell === "object" && !Array.isArray(cell)) {
+      var box = cell[fieldName];
+      if (box && typeof box === "object" && !Array.isArray(box)) return box;
+    }
+  }
+
+  // 2) ищем первый свободный слот (ТОЛЬКО по "пустоте" ячейки)
+  for (var j = 0; j < col.length; j++) {
+    var v = col[j];
+
+    var isFree =
+      (v == null) ||
+      (typeof v === "string" && v.trim() === "") ||
+      (Array.isArray(v) && v.length === 0) ||
+      (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0);
+
+    if (isFree) {
+      col[j] = {};
+      col[j][fieldName] = {};      // <-- вот тот самый JSON в ячейке
+      return col[j][fieldName];
+    }
+  }
+
+  // 3) места нет — предупреждение, без добавления новых ячеек/строк
+  PROD_warnNoStateIndicatorsSlot_(data);
+  return null;
+}
+
+function PROD_warnNoStateIndicatorsSlot_(data) {
+  var msg = "Нет свободной ячейки для 'Показатели государства' в 'Данные государства'. Начисление пропущено.";
+
+  // если есть твоя система новостей
+  if (typeof pushBoxNotice === "function" &&
+      typeof uiTitle === "function" &&
+      typeof uiTop === "function" &&
+      typeof uiRow === "function" &&
+      typeof uiBottom === "function" &&
+      typeof UI === "object") {
+
+    var parts = [];
+    var bc = UI.BAD || "#E36A6A";
+
+    uiTitle(parts, "Производство: предупреждение", bc);
+    uiTop(parts, bc);
+    uiRow(parts, "Причина", msg, UI.VALUE, bc);
+    uiBottom(parts, bc);
+
+    pushBoxNotice(data, {
+      category: "Система",
+      sub: "Производство",
+      priority: 300,
+      parts: parts
+    });
+
+  } else {
+    // тихий fallback
+    console.warn("⚠️ PROD:", msg);
+  }
 }
