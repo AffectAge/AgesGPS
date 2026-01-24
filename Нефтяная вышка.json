@@ -1,0 +1,35 @@
+[
+  {
+    "building_name": "Нефтяная платформа",
+    "building_level": 1,
+    "building_modifiers": {
+      "land_efficiency": 1,
+      "production_efficiency": 1,
+      "consumption_efficiency": 1,
+      "extraction_efficiency": 1,
+      "transport_efficiency": 1
+    },
+    "building_owner": "Украина",
+    "province_id": "Нефть",
+    "status": "Неактивная",
+    "warehouse": {},
+    "trade_orders": [],
+    "incomes": 0,
+    "resource_extraction": [
+      {
+        "resource": "Нефть",
+        "quantity": 100,
+        "current_quantity": 0
+      }
+    ],
+    "resource_consumption": [
+      {
+        "resource": "Энергия",
+        "quantity": 10,
+        "current_quantity": 0
+      }
+    ],
+    "resource_production": [],
+    "used_arable_land": 0
+  }
+]
