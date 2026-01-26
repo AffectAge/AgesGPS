@@ -33,6 +33,8 @@ function TRADE_runBuildingCommerce(data) {
   if (!Array.isArray(data.Торговля)) data.Торговля = [];
   if (!Array.isArray(data.Постройки)) data.Постройки = [];
   if (typeof ensureNews === "function") ensureNews(data);
+  
+  STATE_applyNationalMarket_Flat_(data)
 
   var stateId = TRADE_getStateId_(data);
   if (!stateId) {
@@ -1069,4 +1071,171 @@ function TRADE_writeBackAccessMarketsPool_(accessContainer, accessPool) {
       accessContainer[mid] = Math.floor(Number(accessPool[mid]) || 0);
     });
   }
+}
+
+/* =========================================================
+   STATE: National Market (flat field)
+   data["Данные государства"] хранит:
+     { ..., "Национальный рынок": "MARKET_ID", ... }
+
+   Правило:
+   1) Если "Национальный рынок" задан -> все провинции государства в этот рынок
+   2) Если не задан -> ставим "Национальный рынок" = stateId, затем переводим
+   Защита:
+   - не переписываем p.РынокId/p.Рынок, если уже совпадает
+   Требует: normalizeToArray(value)
+   ========================================================= */
+
+function STATE_applyNationalMarket_Flat_(data) {
+  if (!data || typeof data !== "object") return data;
+
+  var stateId = TRADE_getStateId_(data);
+  if (!stateId) return data;
+  stateId = String(stateId);
+
+  // 1) нормализуем "Данные государства" в 2D
+  var dg = data["Данные государства"];
+  if (!Array.isArray(dg)) {
+    data["Данные государства"] = dg != null ? [[dg]] : [[]];
+    dg = data["Данные государства"];
+  }
+
+  // 2) находим контейнер-объект, где живёт (или будет жить) ключ "Национальный рынок"
+  var container = STATE_findStateContainerForNationalMarket_Flat_(dg);
+
+  // 3) читаем/назначаем target рынок
+  var target = null;
+  if (container["Национальный рынок"] != null && String(container["Национальный рынок"]).trim() !== "") {
+    target = String(container["Национальный рынок"]).trim();
+  }
+
+  if (!target) {
+    target = stateId;
+    container["Национальный рынок"] = target;
+  }
+
+  // 4) переводим провинции (с защитой от лишних записей)
+  var changed = 0;
+  var totalOur = 0;
+
+  if (Array.isArray(data.Провинции)) {
+    normalizeToArray(data.Провинции).forEach(function (row) {
+      normalizeToArray(row).forEach(function (p) {
+        if (!p || typeof p !== "object") return;
+        if (String(p.Владелец || "") !== String(stateId)) return;
+
+        totalOur++;
+
+        var curId = (p.РынокId != null) ? String(p.РынокId).trim() : "";
+        var curNm = (p.Рынок != null) ? String(p.Рынок).trim() : "";
+
+        // если уже в нужном рынке — ничего не делаем
+        if (curId === target && curNm === target) return;
+        if (curId === target && !curNm) { p.Рынок = target; changed++; return; }
+        if (curNm === target && !curId) { p.РынокId = target; changed++; return; }
+
+        // иначе обновляем оба поля (унификация)
+        p.РынокId = target;
+        p.Рынок = target;
+        changed++;
+      });
+    });
+  }
+
+  // 5) (optional) новость
+  if (typeof pushNotice === "function") {
+    var C = "#6E675F";
+    var parts = [];
+    parts.push({ text: "Национальный рынок\n", color: C });
+    parts.push({ text: "┌────────────────────────────────────────────────────────┐\n", color: C });
+    parts.push({ text: "┃ ➔ Государство: " + stateId + "\n", color: C });
+    parts.push({ text: "┃ ➔ Рынок: " + target + "\n", color: C });
+    parts.push({ text: "┃ ➔ Наших провинций: " + String(totalOur) + "\n", color: C });
+    parts.push({ text: "┃ ➔ Изменено: " + String(changed) + "\n", color: C });
+    parts.push({ text: "└────────────────────────────────────────────────────────┘\n", color: C });
+
+    pushNotice(data, {
+      category: "Политика",
+      sub: "Национальный рынок",
+      priority: 90,
+      parts: parts
+    });
+  }
+
+  return data;
+}
+
+/* =======================
+   Helper: find/create container object in data["Данные государства"]
+   (flat national market key)
+   Priority:
+   1) объект, где уже есть ключ "Национальный рынок"
+   2) объект, где есть "Идентификатор государства"
+   3) первый попавшийся объект
+   4) создать новый объект и вставить в первую свободную ячейку
+   ======================= */
+
+function STATE_findStateContainerForNationalMarket_Flat_(dg2d) {
+  var flat = [];
+  for (var r = 0; r < dg2d.length; r++) {
+    var row = dg2d[r];
+    if (Array.isArray(row)) {
+      for (var c = 0; c < row.length; c++) flat.push({ r: r, c: c, cell: row[c] });
+    } else {
+      flat.push({ r: r, c: 0, cell: row });
+    }
+  }
+
+  // 1) where key exists
+  for (var i = 0; i < flat.length; i++) {
+    var cell = flat[i].cell;
+    if (cell && typeof cell === "object" && !Array.isArray(cell) &&
+        Object.prototype.hasOwnProperty.call(cell, "Национальный рынок")) {
+      return cell;
+    }
+  }
+
+  // 2) where state id exists (most canonical container)
+  for (var j = 0; j < flat.length; j++) {
+    var cell2 = flat[j].cell;
+    if (cell2 && typeof cell2 === "object" && !Array.isArray(cell2) &&
+        Object.prototype.hasOwnProperty.call(cell2, "Идентификатор государства")) {
+      return cell2;
+    }
+  }
+
+  // 3) first object
+  for (var k = 0; k < flat.length; k++) {
+    var cell3 = flat[k].cell;
+    if (cell3 && typeof cell3 === "object" && !Array.isArray(cell3)) return cell3;
+  }
+
+  // 4) create new object and insert into first free cell
+  var obj = {};
+  for (var r2 = 0; r2 < dg2d.length; r2++) {
+    var row2 = dg2d[r2];
+
+    if (Array.isArray(row2)) {
+      for (var c2 = 0; c2 < row2.length; c2++) {
+        if (row2[c2] == null || row2[c2] === "") {
+          row2[c2] = obj;
+          return obj;
+        }
+      }
+      if (row2.length === 0) {
+        row2[0] = obj;
+        return obj;
+      }
+    } else {
+      if (row2 == null || row2 === "") {
+        dg2d[r2] = obj;
+        return obj;
+      }
+    }
+  }
+
+  if (dg2d.length > 0 && Array.isArray(dg2d[0])) dg2d.push([obj]);
+  else dg2d.push(obj);
+
+  return obj;
 }
